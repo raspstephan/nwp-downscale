@@ -8,6 +8,14 @@ from zipfile import ZipFile
 from fire import Fire
 import urllib.request
 
+default_variables = [
+    'MultiSensor_QPE_01H_Pass1',
+    'MultiSensor_QPE_03H_Pass1',
+    'MultiSensor_QPE_06H_Pass1',
+    'RadarOnly_QPE_01H',
+    'RadarOnly_QPE_03H',
+    'RadarOnly_QPE_06H',
+]
 
 def download_loop(start_date, stop_date, tmp_path, save_path, variables=None):
     dates = pd.DatetimeIndex(np.arange(start_date, stop_date, dtype='datetime64[h]'))
@@ -21,10 +29,16 @@ def download_and_extract(year, month, day, hour, tmp_path, save_path, delete=Tru
     unzip_file(zip_fn, tmp_path)
     variables = variables or default_variables
     for v in variables:
-        move_relevant_file(year, month, day, hour, v, tmp_path, save_path)
+        try:
+            move_relevant_file(year, month, day, hour, v, tmp_path, save_path)
+        except FileNotFoundError:
+            print(f'File not found: {v}')
     if delete:
-        os.rm(zip_fn)
-        shutil.rmtree(f'tmp_dir/{year}{month}{day}{hour}')
+        month = str(month).zfill(2)
+        day = str(day).zfill(2)
+        hour = str(hour).zfill(2)
+        os.remove(zip_fn)
+        shutil.rmtree(f'{tmp_path}/{year}{month}{day}{hour}')
         
 
 def move_relevant_file(year, month, day, hour, variable, tmp_path, save_path):

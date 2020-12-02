@@ -15,7 +15,7 @@ def main(start_date, stop_date, fn):
         "time": "00:00:00/12:00:00",
         "type": "cf",
         "target": fn,
-        "format": "netcdf"
+        # "format": "netcdf"
     })
     
 if __name__ == '__main__':
