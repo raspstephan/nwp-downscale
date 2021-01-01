@@ -13,7 +13,7 @@ variables = [
     'MultiSensor_QPE_{}H_Pass1',
     'MultiSensor_QPE_{}H_Pass2',
     'RadarOnly_QPE_{}H',
-    'RadarAccumulationQualityIndex_{}H',
+    'RadarQualityIndex',
 ]
         
         
@@ -81,11 +81,11 @@ def download_nrms_from_cache(year, month, day, hour, path):
     return zip_fn
 
 
-def download_loop(start_date, stop_date, dt, tmp_path, save_path, delete_grib=True):
+def download_loop(start_date, stop_date, dt, tmp_path, save_path, delete=True, delete_grib=True):
     dates = pd.DatetimeIndex(np.arange(start_date, stop_date, dt, dtype='datetime64[h]'))
     for d in tqdm(dates):
         download_and_extract(
-            d.year, d.month, d.day, d.hour, tmp_path, save_path, dt, delete_grib=delete_grib)
+            d.year, d.month, d.day, d.hour, tmp_path, save_path, dt, delete=delete, delete_grib=delete_grib)
 
 if __name__ == '__main__':
     Fire(download_loop)

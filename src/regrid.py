@@ -11,6 +11,8 @@ def regrid(
         ds_in,
         km,
         method='bilinear',
+        lats=None,
+        lons=None
         # reuse_weights=True
 ):
 
@@ -28,9 +30,9 @@ def regrid(
     )
 
     # Crop grid
-    lats = slice(np.round(ds_in.lat.max()).values, np.round(ds_in.lat.min()).values)
-    lons = slice(np.round(ds_in.lon.min()).values, np.round(ds_in.lon.max()).values)
-    grid_out = global_grid.sel(lat=lats, lon=lons)
+    lats = lats or (np.round(ds_in.lat.max()).values, np.round(ds_in.lat.min()).values)
+    lons = lons or (np.round(ds_in.lon.min()).values, np.round(ds_in.lon.max()).values)
+    grid_out = global_grid.sel(lat=slice(*lats), lon=slice(*lons))
 
     # Create regridder
     regridder = xe.Regridder(
@@ -56,9 +58,42 @@ def regrid(
     return ds_out.astype('float32')
 
 
-def main(var, path, km, check_exists=True):
+def regrid_mrms(ds_in, km, lats=None, lons=None):
+    """WARNING: This function contains a lot of hard-coding!"""
+    ddeg_out = km/100.
+
+    # Rename to ESMF compatible coordinates
+    if 'latitude' in ds_in.coords:
+        ds_in = ds_in.rename({'latitude': 'lat', 'longitude': 'lon'})
+
+    # Create output grid. To make sure grids stay consistent irrespective of the range, start with a global grid
+    global_grid = xr.Dataset(
+        {
+            'lat': (['lat'], np.arange(90, -90, -ddeg_out)),
+            'lon': (['lon'], np.arange(0, 360, ddeg_out)),
+        }
+    )
+    lats = lats or (np.round(ds_in.lat.max()).values, np.round(ds_in.lat.min()).values)
+    lons = lons or (np.round(ds_in.lon.min()).values, np.round(ds_in.lon.max()).values)
+    grid_out = global_grid.sel(lat=slice(*lats), lon=slice(*lons))
+
+    # Coarse grain array. Offsets of 2 make sure array is compatible with 4km grid spacing
+    coarse_ds = ds_in.isel(lat=slice(2, None), lon=slice(2, None)).coarsen(lat=km, lon=km, boundary='trim').mean()
+
+    # Round to nearest 2 decimals
+    coarse_ds = coarse_ds.assign_coords(
+        lat=np.around(coarse_ds.lat.values, 2),
+        lon=np.around(coarse_ds.lon.values, 2)
+    )
+
+    coarse_ds = coarse_ds.sel(lat=grid_out.lat, lon=grid_out.lon, method='nearest')
+    return coarse_ds
+
+
+
+def main(var, path, km, check_exists=True, lats=None, lons=None, mrms=False):
     path_in = f'{path}/raw/{var}/'
-    files = [p.split('/')[-1] for p in glob(f'{path_in}/*.nc')]
+    files = [p.split('/')[-1] for p in sorted(glob(f'{path_in}/*.nc'))]
     path_out = f'{path}/{km}km/{var}/'
     os.makedirs(path_out, exist_ok=True)
 
@@ -67,7 +102,10 @@ def main(var, path, km, check_exists=True):
             print(path_out + f, 'exists')
         else:
             ds_in = xr.open_dataset(path_in + f)
-            ds_out = regrid(ds_in, km)
+            if mrms: 
+                ds_out = regrid_mrms(ds_in, km, lats=lats, lons=lons)
+            else:
+                ds_out = regrid(ds_in, km, lats=lats, lons=lons)
             print('Saving file:', path_out + f)
             ds_out.to_netcdf(path_out + f)
             ds_in.close(); ds_out.close()
