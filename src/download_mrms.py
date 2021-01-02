@@ -8,6 +8,7 @@ import gzip
 from zipfile import ZipFile
 from fire import Fire
 import urllib.request
+from urllib.error import HTTPError
 
 variables = [
     'MultiSensor_QPE_{}H_Pass1',
@@ -84,8 +85,12 @@ def download_nrms_from_cache(year, month, day, hour, path):
 def download_loop(start_date, stop_date, dt, tmp_path, save_path, delete=True, delete_grib=True):
     dates = pd.DatetimeIndex(np.arange(start_date, stop_date, dt, dtype='datetime64[h]'))
     for d in tqdm(dates):
-        download_and_extract(
-            d.year, d.month, d.day, d.hour, tmp_path, save_path, dt, delete=delete, delete_grib=delete_grib)
+        print(d)
+        try:
+            download_and_extract(
+                d.year, d.month, d.day, d.hour, tmp_path, save_path, dt, delete=delete, delete_grib=delete_grib)
+        except HTTPError:
+            print('Missing')
 
 if __name__ == '__main__':
     Fire(download_loop)
