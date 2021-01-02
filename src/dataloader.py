@@ -44,7 +44,8 @@ class TiggeMRMSDataset(Dataset):
         self.tigge.load(); self.mrms.load()   # Load datasets into RAM
         if scale:   # Apply min-max scaling
             self._scale(mins, maxs)
-        
+        self.tigge = self.tigge.to_array()   # Doing this here saves time
+         
         self.tigge_km = 32   # Currently hard-coded
         self.mrms_km = 4
         self.patch_tigge = self.patch_size // self.tigge_km
@@ -95,10 +96,8 @@ class TiggeMRMSDataset(Dataset):
         nlon = len(self.tigge.lon) // self.patch_tigge
         # This creates indices with (lat_idx, lon_idx)
         idxs = np.array([g.flatten() for g in np.mgrid[:nlat, :nlon]]).T
-        print(len(idxs))
         if hasattr(self, 'rqmask'):   # Only take indices where radar coverage is available
             idxs = np.array([r for r in idxs if self.rqmask.isel(lat=r[0], lon=r[1])])
-            print(len(idxs))
         # Now add time indices
         self.ntime = len(self.overlap_times)
         self.idxs = np.concatenate([
@@ -122,7 +121,7 @@ class TiggeMRMSDataset(Dataset):
         time_idx, lat_idx, lon_idx = self.idxs[idx]
 
         # Get features for given time and patch
-        X = self.tigge.to_array().isel(
+        X = self.tigge.isel(
             valid_time=time_idx,
             lat=slice(lat_idx * self.patch_tigge, (lat_idx+1) * self.patch_tigge),
             lon=slice(lon_idx * self.patch_tigge, (lon_idx+1) * self.patch_tigge)
