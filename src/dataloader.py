@@ -5,11 +5,20 @@ import numpy as np
 import pandas as pd
 
 
+def log_trans(x, eps):
+    """Log transform with given epsilon. Preserves zeros."""
+    return np.log(x + eps) - np.log(eps)
+
+def log_retrans(x, eps):
+    """Inverse log transform"""
+    return np.exp(x + np.log(eps)) - eps
+
+
 class TiggeMRMSDataset(Dataset):
     """PyTorch Dataset for TIGGE MRMS pairing."""
     def __init__(self, tigge_dir, tigge_vars, mrms_dir, lead_time=12, patch_size=512, rq_fn=None, 
                  const_fn=None, const_vars=None, val_days=None, split=None, scale=True,
-                 mins=None, maxs=None, pad_tigge=0):
+                 mins=None, maxs=None, pad_tigge=0, tp_log=None):
         """
         tigge_dir: Path to TIGGE data without variable name
         tigge_vars: List of TIGGE variables
@@ -43,6 +52,9 @@ class TiggeMRMSDataset(Dataset):
         self.mrms = self.mrms.where(self.mrms >= 0, 0)
         self._crop_times()   # Only take times that overlap and (potentially) do train/val split
         self.tigge.load(); self.mrms.load()   # Load datasets into RAM
+        if tp_log:
+            self.tigge['tp'] = log_trans(self.tigge['tp'], tp_log)
+            self.mrms = log_trans(self.mrms, tp_log)
         if scale:   # Apply min-max scaling
             self._scale(mins, maxs)
         self.tigge = self.tigge.to_array()   # Doing this here saves time
