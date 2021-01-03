@@ -5,11 +5,20 @@ import numpy as np
 import pandas as pd
 
 
+def log_trans(x, eps):
+    """Log transform with given epsilon. Preserves zeros."""
+    return np.log(x + eps) - np.log(eps)
+
+def log_retrans(x, eps):
+    """Inverse log transform"""
+    return np.exp(x + np.log(eps)) - eps
+
+
 class TiggeMRMSDataset(Dataset):
     """PyTorch Dataset for TIGGE MRMS pairing."""
     def __init__(self, tigge_dir, tigge_vars, mrms_dir, lead_time=12, patch_size=512, rq_fn=None, 
                  const_fn=None, const_vars=None, val_days=None, split=None, scale=True,
-                 mins=None, maxs=None):
+                 mins=None, maxs=None, pad_tigge=0, tp_log=None):
         """
         tigge_dir: Path to TIGGE data without variable name
         tigge_vars: List of TIGGE variables
@@ -24,6 +33,7 @@ class TiggeMRMSDataset(Dataset):
         scale: Do min-max scaling
         mins: Dataset of mins for TIGGE vars. Computed if not given.
         maxs: Same for maxs
+        pad_tigge: Padding to add to TIGGE patches on each side.
         """
         self.lead_time = lead_time
         self.patch_size = patch_size
@@ -42,12 +52,18 @@ class TiggeMRMSDataset(Dataset):
         self.mrms = self.mrms.where(self.mrms >= 0, 0)
         self._crop_times()   # Only take times that overlap and (potentially) do train/val split
         self.tigge.load(); self.mrms.load()   # Load datasets into RAM
+        if tp_log:
+            self.tigge['tp'] = log_trans(self.tigge['tp'], tp_log)
+            self.mrms = log_trans(self.mrms, tp_log)
         if scale:   # Apply min-max scaling
             self._scale(mins, maxs)
         self.tigge = self.tigge.to_array()   # Doing this here saves time
          
         self.tigge_km = 32   # Currently hard-coded
         self.mrms_km = 4
+        self.ratio = self.tigge_km // self.mrms_km
+        self.pad_tigge = pad_tigge
+        self.pad_mrms = self.pad_tigge * self.ratio
         self.patch_tigge = self.patch_size // self.tigge_km
         self.patch_mrms = self.patch_size // self.mrms_km
         
@@ -92,8 +108,9 @@ class TiggeMRMSDataset(Dataset):
         
     def _setup_indices(self):
         """Create a list of indices containing (time, lat_idx, lon_idx). _idx is the patch index."""
-        nlat = len(self.tigge.lat) // self.patch_tigge
-        nlon = len(self.tigge.lon) // self.patch_tigge
+        # Account for padding on each side
+        nlat = (len(self.tigge.lat) - 2*self.pad_tigge)  // self.patch_tigge
+        nlon = (len(self.tigge.lon) - 2*self.pad_tigge) // self.patch_tigge
         # This creates indices with (lat_idx, lon_idx)
         idxs = np.array([g.flatten() for g in np.mgrid[:nlat, :nlon]]).T
         if hasattr(self, 'rqmask'):   # Only take indices where radar coverage is available
@@ -109,6 +126,8 @@ class TiggeMRMSDataset(Dataset):
     def _create_rqmask(self, rq_fn):
         """Coarsen radar mask to patch and check for full coverage"""
         rq = xr.open_dataarray(rq_fn)
+        # Account for padding
+        rq = rq.isel(lat=slice(self.pad_mrms, -self.pad_mrms or None), lon=slice(self.pad_mrms, -self.pad_mrms or None))
         self.rqmask = rq.coarsen(lat=self.patch_mrms, lon=self.patch_mrms, boundary='trim').min() >= 0
         
     def __len__(self):
@@ -123,8 +142,8 @@ class TiggeMRMSDataset(Dataset):
         # Get features for given time and patch
         X = self.tigge.isel(
             valid_time=time_idx,
-            lat=slice(lat_idx * self.patch_tigge, (lat_idx+1) * self.patch_tigge),
-            lon=slice(lon_idx * self.patch_tigge, (lon_idx+1) * self.patch_tigge)
+            lat=slice(lat_idx * self.patch_tigge, (lat_idx+1) * self.patch_tigge + self.pad_tigge*2),
+            lon=slice(lon_idx * self.patch_tigge, (lon_idx+1) * self.patch_tigge + self.pad_tigge*2)
         ).values
         if hasattr(self, 'const'):  # Add constants
             X = self._add_const(X, lat_idx, lon_idx)
@@ -132,8 +151,8 @@ class TiggeMRMSDataset(Dataset):
         # Get targets
         y = self.mrms.isel(
             time=time_idx,
-            lat=slice(lat_idx * self.patch_mrms, (lat_idx+1) * self.patch_mrms),
-            lon=slice(lon_idx * self.patch_mrms, (lon_idx+1) * self.patch_mrms)
+            lat=slice(lat_idx * self.patch_mrms + self.pad_mrms, (lat_idx+1) * self.patch_mrms),
+            lon=slice(lon_idx * self.patch_mrms + self.pad_mrms, (lon_idx+1) * self.patch_mrms)
         ).values[None]  # Add dimension for channel
         return X, y   # [vars, patch, patch]
     
@@ -141,8 +160,8 @@ class TiggeMRMSDataset(Dataset):
         """Add constants to X"""
         Xs = [X]
         Xs.append(self.const[self.const_vars].to_array().isel(
-            lat=slice(lat_idx * self.patch_tigge, (lat_idx+1) * self.patch_tigge),
-            lon=slice(lon_idx * self.patch_tigge, (lon_idx+1) * self.patch_tigge)
+            lat=slice(lat_idx * self.patch_tigge, (lat_idx+1) * self.patch_tigge + self.pad_tigge*2),
+            lon=slice(lon_idx * self.patch_tigge, (lon_idx+1) * self.patch_tigge + self.pad_tigge*2)
         ))
         return np.concatenate(Xs)
     
