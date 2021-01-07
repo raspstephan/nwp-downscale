@@ -15,7 +15,15 @@ def log_retrans(x, eps):
 
 
 class TiggeMRMSDataset(Dataset):
-    """PyTorch Dataset for TIGGE MRMS pairing."""
+    """ PyTorch Dataset for TIGGE MRMS pairing.
+    
+    Returns TiggeMRMSDataset object. 
+    
+    self.idxs: numpy array with three columns: 
+        [first, second, third] column corresponds to
+        [time,  lat,    lon  ] index of the patches.
+            
+    """
     def __init__(self, tigge_dir, tigge_vars, mrms_dir, lead_time=12, patch_size=512, rq_fn=None, 
                  const_fn=None, const_vars=None, val_days=None, split=None, scale=True,
                  mins=None, maxs=None, pad_tigge=0, tp_log=None):
@@ -60,7 +68,7 @@ class TiggeMRMSDataset(Dataset):
             self._scale(mins, maxs)
         self.tigge = self.tigge.to_array()   # Doing this here saves time
          
-        self.tigge_km = 32   # Currently hard-coded
+        self.tigge_km = 32   # Currently hard-coded 
         self.mrms_km = 4
         self.ratio = self.tigge_km // self.mrms_km
         self.pad_tigge = pad_tigge
@@ -190,14 +198,14 @@ class TiggeMRMSDataset(Dataset):
         weights = bin_weight[bin_idxs]
         return weights
 
-        def get_settings(self): 
-            """returns key properties as pandas table"""
+    def get_settings(self): 
+        """returns key properties as pandas table"""
 
-            options=pd.DataFrame()
-            for key, value in iter(vars(self).items()):
-                if not key in ['tigge', 'mrms', 'overlap_times', 'mins','maxs', 'rqmask','idxs']:
-                    options[key] = [value]
+        options=pd.DataFrame()
+        for key, value in iter(vars(self).items()):
+            if not key in ['tigge', 'mrms', 'overlap_times', 'mins','maxs', 'rqmask','idxs']:
+                options[key] = [value]
 
-            options = options.transpose()
-            options.columns.name='TiggeMRMSDataset_Settings:'
-            return options
+        options = options.transpose()
+        options.columns.name='TiggeMRMSDataset_Settings:'
+        return options
