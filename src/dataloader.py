@@ -15,7 +15,17 @@ def log_retrans(x, eps):
 
 
 class TiggeMRMSDataset(Dataset):
-    """PyTorch Dataset for TIGGE MRMS pairing."""
+    """ PyTorch Dataset for TIGGE MRMS pairing.
+    
+    Returns TiggeMRMSDataset object. 
+    
+    self.idxs: numpy array with three columns: 
+        [first, second, third] column corresponds to
+        [time,  lat,    lon  ] index of the patches. 
+        The time-idx value corresponds to the time given by the overlap_times array.
+
+            
+    """
     def __init__(self, tigge_dir, tigge_vars, mrms_dir, lead_time=12, patch_size=512, rq_fn=None, 
                  const_fn=None, const_vars=None, val_days=None, split=None, scale=True,
                  mins=None, maxs=None, pad_tigge=0, tp_log=None):
@@ -34,6 +44,7 @@ class TiggeMRMSDataset(Dataset):
         mins: Dataset of mins for TIGGE vars. Computed if not given.
         maxs: Same for maxs
         pad_tigge: Padding to add to TIGGE patches on each side.
+        tp_log: whether to scale the total precipitation logarithmically
         """
         self.lead_time = lead_time
         self.patch_size = patch_size
@@ -59,7 +70,7 @@ class TiggeMRMSDataset(Dataset):
             self._scale(mins, maxs)
         self.tigge = self.tigge.to_array()   # Doing this here saves time
          
-        self.tigge_km = 32   # Currently hard-coded
+        self.tigge_km = 32 # ds.tigge.lon.diff('lon').max()*100  # Currently hard-coded 
         self.mrms_km = 4
         self.ratio = self.tigge_km // self.mrms_km
         self.pad_tigge = pad_tigge
@@ -134,7 +145,16 @@ class TiggeMRMSDataset(Dataset):
         return len(self.idxs)
     
     def __getitem__(self, idx):
-        """Return individual sample. idx is the sample id, i.e. the index of self.idxs."""
+        """Return individual sample. idx is the sample id, i.e. the index of self.idxs.
+        X: TIGGE sample
+        y: corresponding MRMS (radar) sample
+        
+        **Attention:**
+        The self.tigge latitude variable is from ~50-20 degrees, i.e. not from small to large!
+        Be careful when transforming indices to actual latitude values! 
+        
+        """
+
         if torch.is_tensor(idx):
             idx = idx.tolist()
         time_idx, lat_idx, lon_idx = self.idxs[idx]
@@ -185,3 +205,15 @@ class TiggeMRMSDataset(Dataset):
         bin_idxs = np.digitize(mean_precip, bins) - 1
         weights = bin_weight[bin_idxs]
         return weights
+
+    def get_settings(self): 
+        """returns key properties as pandas table"""
+
+        options=pd.DataFrame()
+        for key, value in iter(vars(self).items()):
+            if not key in ['tigge', 'mrms', 'overlap_times', 'mins','maxs', 'rqmask','idxs']:
+                options[key] = [value]
+
+        options = options.transpose()
+        options.columns.name='TiggeMRMSDataset_Settings:'
+        return options
