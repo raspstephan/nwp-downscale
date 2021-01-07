@@ -34,6 +34,7 @@ class TiggeMRMSDataset(Dataset):
         mins: Dataset of mins for TIGGE vars. Computed if not given.
         maxs: Same for maxs
         pad_tigge: Padding to add to TIGGE patches on each side.
+        tp_log: whether to scale the total precipitation logarithmically
         """
         self.lead_time = lead_time
         self.patch_size = patch_size
@@ -134,7 +135,10 @@ class TiggeMRMSDataset(Dataset):
         return len(self.idxs)
     
     def __getitem__(self, idx):
-        """Return individual sample. idx is the sample id, i.e. the index of self.idxs."""
+        """Return individual sample. idx is the sample id, i.e. the index of self.idxs.
+        X: TIGGE sample
+        y: corresponding MRMS (radar) sample"""
+
         if torch.is_tensor(idx):
             idx = idx.tolist()
         time_idx, lat_idx, lon_idx = self.idxs[idx]
@@ -185,3 +189,15 @@ class TiggeMRMSDataset(Dataset):
         bin_idxs = np.digitize(mean_precip, bins) - 1
         weights = bin_weight[bin_idxs]
         return weights
+
+        def get_settings(self): 
+            """returns key properties as pandas table"""
+
+            options=pd.DataFrame()
+            for key, value in iter(vars(self).items()):
+                if not key in ['tigge', 'mrms', 'overlap_times', 'mins','maxs', 'rqmask','idxs']:
+                    options[key] = [value]
+
+            options = options.transpose()
+            options.columns.name='TiggeMRMSDataset_Settings:'
+            return options
