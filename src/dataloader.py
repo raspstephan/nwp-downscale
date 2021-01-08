@@ -217,3 +217,28 @@ class TiggeMRMSDataset(Dataset):
         options = options.transpose()
         options.columns.name='TiggeMRMSDataset_Settings:'
         return options
+
+    def get_sample_as_xr(self, idx): 
+        """Similar to __get_item__ method but returns X and y (only tp) as xarray samples. 
+        idx: patch index 
+    
+        Returns X,y as xarray data arrays 
+        """
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+        time_idx, lat_idx, lon_idx = self.idxs[idx]
+
+        # Get features for given time and patch
+        X = self.tigge.isel(
+            valid_time=time_idx,
+            lat=slice(lat_idx * self.patch_tigge, (lat_idx+1) * self.patch_tigge + self.pad_tigge*2),
+            lon=slice(lon_idx * self.patch_tigge, (lon_idx+1) * self.patch_tigge + self.pad_tigge*2)
+        )
+
+        # Get targets
+        y = self.mrms.isel(
+            time=time_idx,
+            lat=slice(lat_idx * self.patch_mrms + self.pad_mrms, (lat_idx+1) * self.patch_mrms),
+            lon=slice(lon_idx * self.patch_mrms + self.pad_mrms, (lon_idx+1) * self.patch_mrms)
+        )
+        return X,y
