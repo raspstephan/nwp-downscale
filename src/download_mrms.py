@@ -89,7 +89,7 @@ def download_loop(start_date, stop_date, dt, tmp_path, save_path, delete=True, d
         try:
             download_and_extract(
                 d.year, d.month, d.day, d.hour, tmp_path, save_path, dt, delete=delete, delete_grib=delete_grib)
-        except HTTPError:
+        except:
             print('Missing')
 
 if __name__ == '__main__':
