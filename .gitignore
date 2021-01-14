@@ -134,3 +134,4 @@ dmypy.json
 .DS_Store
 
 ./data/
+nwp-downscale-workspaceMH.code-workspace
