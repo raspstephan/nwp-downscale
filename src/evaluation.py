@@ -41,11 +41,11 @@ General workflow structure:
 #.. moduleauthor:: Nathan Faggian <n.faggian@bom.gov.au>
 #"""
 
-def compute_integral_table(field) :
+def _compute_integral_table(field) :
     return field.cumsum(1).cumsum(0)
 
 
-def integral_filter(field, n, table=None) :
+def _integral_filter(field, n, table=None) :
     """
     Fast summed area table version of the sliding accumulator.
     :param field: nd-array of binary hits/misses.
@@ -55,7 +55,7 @@ def integral_filter(field, n, table=None) :
     if w < 1. :
         return field
     if table is None:
-        table = compute_integral_table(field)
+        table = _compute_integral_table(field)
 
     r, c = np.mgrid[ 0:field.shape[0], 0:field.shape[1] ]
     r = r.astype(np.int)
@@ -71,7 +71,7 @@ def integral_filter(field, n, table=None) :
     return integral_table
 
 
-def fss(fcst, obs, threshold, window, fcst_cache=None, obs_cache=None):
+def _fss(fcst, obs, threshold, window, fcst_cache=None, obs_cache=None):
     """
     Compute the fraction skill score using summed area tables .
     :param fcst: nd-array, forecast field.
@@ -79,14 +79,14 @@ def fss(fcst, obs, threshold, window, fcst_cache=None, obs_cache=None):
     :param window: integer, window size.
     :return: tuple of FSS numerator, denominator and score.
     """
-    fhat = integral_filter( fcst > threshold, window, fcst_cache )
-    ohat = integral_filter( obs  > threshold, window, obs_cache  )
+    fhat = _integral_filter( fcst > threshold, window, fcst_cache )
+    ohat = _integral_filter( obs  > threshold, window, obs_cache  )
 
     num = np.nanmean(np.power(fhat - ohat, 2))
     denom = np.nanmean(np.power(fhat, 2) + np.power(ohat, 2))
     return num, denom, 1.-num/denom
 
-def fss_frame(fcst, obs, windows, levels):
+def _fss_frame(fcst, obs, windows, levels):
     """
     Compute the fraction skill score data-frame.
     :param fcst: nd-array, forecast field.
@@ -99,9 +99,9 @@ def fss_frame(fcst, obs, windows, levels):
     #print(fcst.shape)
     #print(obs.shape)
     for level in levels:
-        ftable = compute_integral_table( fcst > level )
-        otable = compute_integral_table( obs  > level )
-        _data = [fss(fcst, obs, level, w, ftable, otable) for w in windows]
+        ftable = _compute_integral_table( fcst > level )
+        otable = _compute_integral_table( obs  > level )
+        _data = [_fss(fcst, obs, level, w, ftable, otable) for w in windows]
         num_data.append([x[0] for x in _data])
         den_data.append([x[1] for x in _data])
         fss_data.append([x[2] for x in _data])
@@ -244,7 +244,7 @@ def compute_eval_metrics(fcst, obs, eval_mask = None, metrics = ['RMSE', 'FSS'],
     if 'FSS' in metrics: # maybe there is a way to implement this faster?
         from dask.diagnostics import ProgressBar
 
-        fss_da = xr.apply_ufunc(fss_frame, fcst, obs, input_core_dims=[[ 'lat', 'lon'], ['lat', 'lon']],
+        fss_da = xr.apply_ufunc(_fss_frame, fcst, obs, input_core_dims=[[ 'lat', 'lon'], ['lat', 'lon']],
                        output_core_dims=[['thresholds','scales']], 
                        output_dtypes=[fcst.dtype],
                        dask_gufunc_kwargs = dict(output_sizes= {'scales':len(fss_scales), 'thresholds': len(fss_thresholds)},),
@@ -258,7 +258,7 @@ def compute_eval_metrics(fcst, obs, eval_mask = None, metrics = ['RMSE', 'FSS'],
     
     return metrics_ds
 
-def main(lead_time = 12): 
+def _main(lead_time = 12): 
     
     # 1. Load in data: 
     ds = TiggeMRMSDataset(
@@ -291,4 +291,4 @@ def main(lead_time = 12):
 
 
 if __name__ == '__main__':
-    Fire(main)
+    Fire(_main)
