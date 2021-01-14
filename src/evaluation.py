@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 import xskillscore as xs
 from dask.diagnostics import ProgressBar
+from sklearn.metrics import f1_score
 
 
 """ Evaluation functions and classes (??) 
@@ -108,6 +109,19 @@ def _fss_frame(fcst, obs, windows, levels):
     return np.array(fss_data) #pd.DataFrame(fss_data, index=levels, columns=windows)
 # ------------------- Done with FSS functions -----------------------
 
+def _my_f1_score(obs,fcst, thresholds, **Kws):
+    """ wraps scikit-learn f1-score computation to fit the needs of the apply-ufunc seting.
+    obs: 2d np.array of observation data 
+    fcst: 2d np.array of forecast data 
+    thresholds: list of precipitation thresholds to apply. Computes f1-score for each threshold. 
+
+    Returns np.array of f1-scores, with each value belonging to a different threshold
+    
+    """ 
+    assert obs.shape==fcst.shape,'Shapes of obs and fcst do not match.'
+    f1_scores = [f1_score((obs>threshold).ravel(), (fcst>threshold).ravel(),**kws) for threshold in thresholds]
+    
+    return np.array(f1_scores)
 
 
 
@@ -156,6 +170,7 @@ def get_eval_mask(criterion='radarquality', rq_threshold = -1,
         Returns: boolean xr-dataarray, with same lon-lat dimensions 
             as the radar data. 
     """
+    # TODO: consider time dependece of radarmask! (do we need to inlcude that?)
     if criterion =='radarquality': # use rq>rq-threshold as criterion 
         rq = xr.open_dataarray(rq_fn)
         eval_mask = rq>rq_threshold
@@ -205,8 +220,9 @@ def get_baseline(X, y, kind = 'interpol',
     assert y_baseline.shape == y.shape, 'y_baseline and y do not have the same size!'
     return y_baseline
     
-def compute_eval_metrics(fcst, obs, eval_mask = None, metrics = ['RMSE', 'FSS'],
-                     fss_scales=[41,61], fss_thresholds = [1., 5.] ): 
+def compute_eval_metrics(fcst, obs, eval_mask = None, metrics = ['RMSE', 'FSS', 'F1'],
+                     fss_scales=[41,61], fss_thresholds = [1., 5.],
+                     f1_thresholds = [0.1,1., 5.], f1_kws=dict() ): 
     """ Function to compute evaluation metrics to compare a forecast with observations
     fcst: xr-array of the forecast, e.g. the interpolation baseline or the downscaled forecast
     obs: xr-array fo observations, i.e. radar data 
@@ -245,16 +261,26 @@ def compute_eval_metrics(fcst, obs, eval_mask = None, metrics = ['RMSE', 'FSS'],
         from dask.diagnostics import ProgressBar
 
         fss_da = xr.apply_ufunc(_fss_frame, fcst, obs, input_core_dims=[[ 'lat', 'lon'], ['lat', 'lon']],
-                       output_core_dims=[['thresholds','scales']], 
+                       output_core_dims=[['fss_thresholds','fss_scales']], 
                        output_dtypes=[fcst.dtype],
-                       dask_gufunc_kwargs = dict(output_sizes= {'scales':len(fss_scales), 'thresholds': len(fss_thresholds)},),
+                       dask_gufunc_kwargs = dict(output_sizes= {'fss_scales':len(fss_scales), 'fss_thresholds': len(fss_thresholds)},),
                        vectorize =True, dask='parallelized',
                        kwargs = dict(windows=fss_scales, levels = fss_thresholds))
-        fss_da['thresholds'] = np.array(fss_thresholds)
-        fss_da['scales'] = np.array(fss_scales)
+        fss_da['fss_thresholds'] = np.array(fss_thresholds)
+        fss_da['fss_scales'] = np.array(fss_scales)
         #with ProgressBar(minimum=1): 
             #fss_da = fss_da.compute()
         metrics_ds['FSS'] = fss_da
+
+    if 'F1' in metrics: 
+        f1_da = xr.apply_ufunc(my_f1_score, (obs.where(eval_mask)), (fcst.where(eval_mask)), 
+                    input_core_dims=[['lat', 'lon'], ['lat', 'lon']], output_dtypes=[fcst.dtype],
+                    output_core_dims=[['f1_thresholds']], vectorize=True, dask='parallelized',
+                    dask_gufunc_kwargs = dict(output_sizes= {'f1_thresholds': len(f1_thresholds)},),
+                    kwargs = dict(thresholds=f1_thresholds, **f1_kws))
+        f1_da['f1_thresholds'] = f1_thresholds
+        f1_da.name = 'F1-Score'
+        metrics_ds['F1-Score'] = f1_da
     
     return metrics_ds
 
