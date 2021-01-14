@@ -158,7 +158,7 @@ def get_eval_mask(criterion='radarquality', rq_threshold = -1,
     """
     if criterion =='radarquality': # use rq>rq-threshold as criterion 
         rq = xr.open_dataarray(rq_fn)
-        eval_mask = rq>threshold
+        eval_mask = rq>rq_threshold
 
 
     return eval_mask
