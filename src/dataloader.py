@@ -89,6 +89,7 @@ class TiggeMRMSDataset(Dataset):
                 const_mins = self.const.min()
                 const_maxs = self.const.max()
                 self.const = (self.const - const_mins) / (const_maxs - const_mins)
+            self.const = self.const[self.const_vars].to_array()
     
     def _scale(self, mins, maxs):
         """Apply min-max scaling. Use same scaling for tp in TIGGE and MRMS."""
@@ -143,6 +144,13 @@ class TiggeMRMSDataset(Dataset):
         
     def __len__(self):
         return len(self.idxs)
+
+    @property
+    def input_vars(self):
+        v = len(self.tigge.variable)
+        if hasattr(self, 'const'):
+            v += len(self.const.variable)
+        return v
     
     def __getitem__(self, idx, time_idx=None, full_array=False):
         """Return individual sample. idx is the sample id, i.e. the index of self.idxs.
@@ -192,7 +200,7 @@ class TiggeMRMSDataset(Dataset):
     def _add_const(self, X, lat_slice, lon_slice):
         """Add constants to X"""
         Xs = [X]
-        Xs.append(self.const[self.const_vars].to_array().isel(
+        Xs.append(self.const.isel(
             lat=lat_slice,
             lon=lon_slice
         ))
