@@ -9,3 +9,14 @@ def isnotebook():
             return False  # Other type (?)
     except NameError:
         return False      # Probably standard Python interpreter
+
+import torch
+if torch.cuda.is_available():
+    device = torch.device("cuda") 
+else:
+    device = torch.device("cpu")
+
+if isnotebook():
+    import tqdm.notebook as tqdm
+else:
+    import tqdm

@@ -3,5 +3,5 @@ tigge_dir: /datadrive/tigge/32km/
 tigge_vars: [total_precipitation]
 mrms_dir: /datadrive/mrms/4km/RadarOnly_QPE_06H/
 rq_fn: /datadrive/mrms/4km/RadarQuality.nc
-save_dir: saved_models
+save_dir: /datadrive/saved_models
 epochs: 1

@@ -1,17 +1,9 @@
 import torch
 import torch.nn as nn
-from .utils import isnotebook
-if isnotebook():
-    import tqdm.notebook as tqdm
-else:
-    import tqdm
+from .utils import tqdm, device
 import numpy as np
 import matplotlib.pyplot as plt
 
-if torch.cuda.is_available():
-    device = torch.device("cuda") 
-else:
-    device = torch.device("cpu")
 
 class UpscalingCNN(nn.Module):
     """Totally untested"""
