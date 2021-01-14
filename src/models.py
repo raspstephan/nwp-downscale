@@ -1,8 +1,17 @@
 import torch
 import torch.nn as nn
-import tqdm.notebook as tqdm
+from .utils import isnotebook
+if isnotebook():
+    import tqdm.notebook as tqdm
+else:
+    import tqdm
 import numpy as np
 import matplotlib.pyplot as plt
+
+if torch.cuda.is_available():
+    device = torch.device("cuda") 
+else:
+    device = torch.device("cpu")
 
 class UpscalingCNN(nn.Module):
     """Totally untested"""
@@ -63,11 +72,11 @@ class Trainer():
         # Epoch loop
         for epoch in range(1, epochs+1):
 
-            prog_bar = tqdm.tqdm(total=len(dl_train), desc=f'Epoch {epoch}')
+            prog_bar = tqdm.tqdm(total=len(self.dl_train), desc=f'Epoch {epoch}')
             train_loss, valid_loss = 0, 0
 
             # Train
-            for i, (X, y) in enumerate(dl_train):
+            for i, (X, y) in enumerate(self.dl_train):
                 X = X.to(device); y = y.to(device)
                 y_hat = self.model(X)
                 loss = self.criterion(y_hat, y)
@@ -84,7 +93,7 @@ class Trainer():
 
             if (self.epoch-1) % self.valid_every_epochs == 0:
                 # Valid
-                for i, (X, y) in enumerate(dl_valid):
+                for i, (X, y) in enumerate(self.dl_valid):
                     X = X.to(device); y = y.to(device)
                     y_hat = self.model(X)
                     loss = self.criterion(y_hat, y)
