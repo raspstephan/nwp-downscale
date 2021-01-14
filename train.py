@@ -1,12 +1,10 @@
 from src.models import *
 from src.dataloader import *
+from src.evaluate import *
+from src.utils import tqdm, device
 from configargparse import ArgParser
 import torch
 
-if torch.cuda.is_available():
-    device = torch.device("cuda") 
-else:
-    device = torch.device("cpu")
 
 def train(
     tigge_dir=None,
@@ -89,6 +87,11 @@ def train(
         save_path = f'{save_dir}/{exp_id}.pt'
         print('Saving model as:', save_path)
         torch.save(model, save_path)
+
+        save_path = f'{save_dir}/{exp_id}.nc'
+        print('Saving prediction as:', save_path)
+        preds = create_valid_predictions(model, ds_valid)
+        preds.to_netcdf(save_path)
 
 
 

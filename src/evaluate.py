@@ -1,8 +1,10 @@
+from .utils import tqdm, device
+import numpy as np
+import xarray as xr
+import torch
+
+
 def create_valid_predictions(model, ds_valid):
-    """
-    Takes trained model and valid dataset and returns xr.DataArray
-    of predictions in physical units for the entire field.
-    """
     # Get predictions for full field
     preds = []
     for t in tqdm.tqdm(range(len(ds_valid.tigge.valid_time))):
