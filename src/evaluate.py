@@ -1,6 +1,7 @@
 from .utils import tqdm, device
 import numpy as np
 import xarray as xr
+import torch
 
 
 def create_valid_predictions(model, ds_valid):

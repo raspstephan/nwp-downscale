@@ -91,7 +91,7 @@ def train(
         save_path = f'{save_dir}/{exp_id}.nc'
         print('Saving prediction as:', save_path)
         preds = create_valid_predictions(model, ds_valid)
-        preds.tp_netcdf(save_path)
+        preds.to_netcdf(save_path)
 
 
 
