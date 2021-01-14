@@ -152,7 +152,7 @@ class TiggeMRMSDataset(Dataset):
             v += len(self.const.variable)
         return v
     
-    def __getitem__(self, idx):
+    def __getitem__(self, idx, time_idx=None, full_array=False):
         """Return individual sample. idx is the sample id, i.e. the index of self.idxs.
         X: TIGGE sample
         y: corresponding MRMS (radar) sample
@@ -165,35 +165,53 @@ class TiggeMRMSDataset(Dataset):
 
         if torch.is_tensor(idx):
             idx = idx.tolist()
-        time_idx, lat_idx, lon_idx = self.idxs[idx]
+        time_idx_tmp, lat_idx, lon_idx = self.idxs[idx]
+        time_idx = time_idx or time_idx_tmp
 
         # Get features for given time and patch
+        if full_array:  # Return full lats, lons
+            lat_slice = slice(0, None)
+            lon_slice = slice(0, None)
+        else:
+            lat_slice = slice(lat_idx * self.patch_tigge, (lat_idx+1) * self.patch_tigge + self.pad_tigge*2)
+            lon_slice = slice(lon_idx * self.patch_tigge, (lon_idx+1) * self.patch_tigge + self.pad_tigge*2)
         X = self.tigge.isel(
             valid_time=time_idx,
-            lat=slice(lat_idx * self.patch_tigge, (lat_idx+1) * self.patch_tigge + self.pad_tigge*2),
-            lon=slice(lon_idx * self.patch_tigge, (lon_idx+1) * self.patch_tigge + self.pad_tigge*2)
+            lat=lat_slice,
+            lon=lon_slice
         ).values
         if hasattr(self, 'const'):  # Add constants
-            X = self._add_const(X, lat_idx, lon_idx)
+            X = self._add_const(X, lat_slice, lon_slice)
 
         # Get targets
+        if full_array:   # Return corresponding MRMS slice; not used currently
+            lat_slice = slice(0, len(self.tigge.lat) * self.ratio)
+            lon_slice = slice(0, len(self.tigge.lon) * self.ratio)
+        else:
+            lat_slice = slice(lat_idx * self.patch_mrms + self.pad_mrms, (lat_idx+1) * self.patch_mrms)
+            lon_slice = slice(lon_idx * self.patch_mrms + self.pad_mrms, (lon_idx+1) * self.patch_mrms)
         y = self.mrms.isel(
             time=time_idx,
-            lat=slice(lat_idx * self.patch_mrms + self.pad_mrms, (lat_idx+1) * self.patch_mrms),
-            lon=slice(lon_idx * self.patch_mrms + self.pad_mrms, (lon_idx+1) * self.patch_mrms)
+            lat=lat_slice,
+            lon=lon_slice
         ).values[None]  # Add dimension for channel
         return X, y   # [vars, patch, patch]
     
-    def _add_const(self, X, lat_idx, lon_idx):
+    def _add_const(self, X, lat_slice, lon_slice):
         """Add constants to X"""
         Xs = [X]
         Xs.append(self.const.isel(
-            lat=slice(lat_idx * self.patch_tigge, (lat_idx+1) * self.patch_tigge + self.pad_tigge*2),
-            lon=slice(lon_idx * self.patch_tigge, (lon_idx+1) * self.patch_tigge + self.pad_tigge*2)
+            lat=lat_slice,
+            lon=lon_slice
         ))
         return np.concatenate(Xs)
     
     
+    def return_full_array(self, time_idx):
+        """Shortcut to return a full scaled array for a single time index"""
+        return self.__getitem__(0, time_idx, full_array=True)
+
+
     def compute_weights(self, bins=np.append(np.arange(0, 0.1, 0.01), 10)):
         """
         Compute sampling weights for each sample. Weights are computed so that 
