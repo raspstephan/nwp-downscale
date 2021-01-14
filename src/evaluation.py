@@ -106,7 +106,8 @@ def fss_frame(fcst, obs, windows, levels):
         den_data.append([x[1] for x in _data])
         fss_data.append([x[2] for x in _data])
     return np.array(fss_data) #pd.DataFrame(fss_data, index=levels, columns=windows)
-# ----------------------------------
+# ------------------- Done with FSS functions -----------------------
+
 
 
 
