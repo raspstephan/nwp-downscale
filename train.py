@@ -1,6 +1,5 @@
 from src.models import *
 from src.dataloader import *
-from src.evaluate import *
 from src.utils import tqdm, device
 from configargparse import ArgParser
 import torch
