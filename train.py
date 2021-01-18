@@ -3,7 +3,9 @@ from src.dataloader import *
 from src.utils import tqdm, device
 from configargparse import ArgParser
 import torch
-
+from git import Repo
+from datetime import datetime
+import os
 
 def train(
     tigge_dir=None,
@@ -17,7 +19,10 @@ def train(
     learning_rate=None,
     epochs=None,
     save_dir=None,
-    exp_id=None
+    exp_id=None,
+    nres=None,
+    nf=None,
+    relu_out=None
     ):
 
     # Allocate train and valid datasets
@@ -63,8 +68,11 @@ def train(
 
     # Create network
     print('Device:', device)
-    model = UpscalingCNN(
-        input_vars=ds_train.input_vars
+    model = Generator(
+        nres=nres,
+        nf_in=ds_train.input_vars,
+        nf=nf,
+        relu_out=relu_out
     ).to(device)
 
     # Setup trainer
@@ -86,11 +94,23 @@ def train(
         save_path = f'{save_dir}/{exp_id}.pt'
         print('Saving model as:', save_path)
         torch.save(model, save_path)
+        
+        save_path = f'{save_dir}/{exp_id}_train.nc'
+        print('Saving prediction as:', save_path)
+        preds = create_valid_predictions(model, ds_train)
+        preds.to_netcdf(save_path)
 
-        save_path = f'{save_dir}/{exp_id}.nc'
+        save_path = f'{save_dir}/{exp_id}_valid.nc'
         print('Saving prediction as:', save_path)
         preds = create_valid_predictions(model, ds_valid)
         preds.to_netcdf(save_path)
+
+        time_stamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+        cwd = os.getcwd()
+        git_hash = str(Repo(cwd).active_branch.commit)
+        with open(f'{save_dir}/{exp_id}.log', 'w+') as f:
+            f.write(time_stamp + '\n')
+            f.write(git_hash)
 
 
 
@@ -119,6 +139,15 @@ if __name__ == '__main__':
     )
     p.add_argument('--val_days', type=int, default=7, 
         help='First N days of each month used for validation'
+    )
+    p.add_argument('--nres', type=int, default=3, 
+        help='Number of residual blocks before upscaling'
+    )
+    p.add_argument('--nf', type=int, default=64, 
+        help='Number of filters in generator'
+    )
+    p.add_argument('--relu_out', type=bool, default=False, 
+        help='Apply relu after final generator layer.'
     )
     p.add_argument('--batch_size', type=int, default=32, 
         help='Batch size'
