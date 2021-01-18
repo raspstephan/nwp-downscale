@@ -5,7 +5,7 @@ from configargparse import ArgParser
 import torch
 from git import Repo
 from datetime import datetime
-
+import os
 
 def train(
     tigge_dir=None,
@@ -106,10 +106,10 @@ def train(
         preds.to_netcdf(save_path)
 
         time_stamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-        pwd = check_output(['pwd']).rstrip()  # Need to remove trailing /n
-        git_hash = Repo(pwd).heads[0].commit
+        cwd = os.getcwd()
+        git_hash = str(Repo(cwd).active_branch.commit)
         with open(f'{save_dir}/{exp_id}.log', 'w+') as f:
-            f.write(time_stamp)
+            f.write(time_stamp + '\n')
             f.write(git_hash)
 
 
