@@ -4,6 +4,7 @@ import pandas as pd
 import xskillscore as xs
 from dask.diagnostics import ProgressBar
 from sklearn.metrics import f1_score
+import matplotlib.pyplot as plt
 
 
 """ Evaluation functions and classes (??) 
@@ -109,7 +110,7 @@ def _fss_frame(fcst, obs, windows, levels):
     return np.array(fss_data) #pd.DataFrame(fss_data, index=levels, columns=windows)
 # ------------------- Done with FSS functions -----------------------
 
-def _my_f1_score(obs,fcst, thresholds, **Kws):
+def _my_f1_score(obs,fcst, thresholds, **kws):
     """ wraps scikit-learn f1-score computation to fit the needs of the apply-ufunc seting.
     obs: 2d np.array of observation data 
     fcst: 2d np.array of forecast data 
@@ -143,8 +144,8 @@ def compare_fields(X, y_G = None, y_b = None, y=None,
     X.plot(ax=axs[0], **settings)
     axs[0].set_title('Tigge original')
     
-    if y_G:
-        y_G.plot(ax=axs[3], **settings)
+    #if y_G:
+    y_G.plot(ax=axs[1], **settings)
     axs[1].set_title('downscaled')
     
     y_b.plot(ax=axs[2], **settings)
