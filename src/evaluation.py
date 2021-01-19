@@ -273,7 +273,7 @@ def compute_eval_metrics(fcst, obs, eval_mask = None, metrics = ['RMSE', 'FSS', 
         metrics_ds['FSS'] = fss_da
 
     if 'F1' in metrics: 
-        f1_da = xr.apply_ufunc(my_f1_score, (obs.where(eval_mask)), (fcst.where(eval_mask)), 
+        f1_da = xr.apply_ufunc(_my_f1_score, (obs.where(eval_mask)), (fcst.where(eval_mask)), 
                     input_core_dims=[['lat', 'lon'], ['lat', 'lon']], output_dtypes=[fcst.dtype],
                     output_core_dims=[['f1_thresholds']], vectorize=True, dask='parallelized',
                     dask_gufunc_kwargs = dict(output_sizes= {'f1_thresholds': len(f1_thresholds)},),
