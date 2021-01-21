@@ -293,54 +293,54 @@ def compute_eval_metrics(fcst, obs, eval_mask = None, metrics = ['RMSE', 'FSS', 
     return metrics_ds
 
 
-    def evaluate_downscaled_fcst(coarse_fcst, downscaled_fcst, obs, save_to=None, **kws):
-        """ xarrays as input 
-        Parameter: 
-        coarse_fcst (e.g. tigge data): xr.dataarray precipitation
-        downscaled_fcst (e.g. gan-generated): xr.dataarray precipitation
-        obs (e.g. radar): xr.dataarray precipiatation
-        save_to: string, if given, saves eval-metrics to file as specified by string
-        """
+def evaluate_downscaled_fcst(coarse_fcst, downscaled_fcst, obs, save_to=None, **kws):
+    """ xarrays as input 
+    Parameter: 
+    coarse_fcst (e.g. tigge data): xr.dataarray precipitation
+    downscaled_fcst (e.g. gan-generated): xr.dataarray precipitation
+    obs (e.g. radar): xr.dataarray precipiatation
+    save_to: string, if given, saves eval-metrics to file as specified by string
+    """
+
+    # Step 1: data preparation: matching time dimensions, matching lon-lat dimensions
+    if type(downscaled_fcst) is not xr.DataArray: # select variable "tp"
+        try: downscaled_fcst=downscaled_fcst.tp 
+        except: "downscaled_fcst input must be a xr.dataarray." 
+    if 'variable' in coarse_fcst.coords: # select tp from coord "variable"
+        try: coarse_fcst=coarse_fcst.sel(variable='tp')
+        except: "coars_fcst input must be precipitation only." 
+        
+    obs = obs.sel(lat=downscaled_fcst.lat, lon=downscaled_fcst.lon)
+    obs = obs.sel(time = downscaled_fcst.valid_time)    
+        
+        
     
-        # Step 1: data preparation: matching time dimensions, matching lon-lat dimensions
-        if type(downscaled_fcst) is not xr.DataArray: # select variable "tp"
-            try: downscaled_fcst=downscaled_fcst.tp 
-            except: "downscaled_fcst input must be a xr.dataarray." 
-        if 'variable' in coarse_fcst.coords: # select tp from coord "variable"
-            try: coarse_fcst=coarse_fcst.sel(variable='tp')
-            except: "coars_fcst input must be precipitation only." 
-            
-        obs = obs.sel(lat=downscaled_fcst.lat, lon=downscaled_fcst.lon)
-        obs = obs.sel(time = downscaled_fcst.valid_time)    
-            
-            
         
-            
-        # Step 2: compute baseline 
-        baseline = get_baseline(coarse_fcst, obs)
-        assert baseline.shape == downscaled_fcst.shape, 'baseline and downscaled_fcst have different shapes!'
-        
-        # Step 3: evaluation mask
-        eval_mask = get_eval_mask()
-        eval_mask = eval_mask.sel(lat=downscaled_fcst.lat, lon=downscaled_fcst.lon)
+    # Step 2: compute baseline 
+    baseline = get_baseline(coarse_fcst, obs)
+    assert baseline.shape == downscaled_fcst.shape, 'baseline and downscaled_fcst have different shapes!'
     
-        # Step 4: compute different metrics
-        metrics_bl = compute_eval_metrics(baseline, obs, eval_mask )
-        metrics_dfcst = compute_eval_metrics(downscaled_fcst, obs, eval_mask)
-        
-        metrics_dfcst['fcst_type'] = 'Generator'
-        metrics_bl['fcst_type'] = 'Baseline'
-        metrics = xr.concat([metrics_dfcst, metrics_bl],dim = "fcst_type")
-        metrics
-        
-        print("Compute metrics:")
-        with ProgressBar():
-            metrics.load() # execute fss computation  
-        
-        # Step 5: save metrics to file 
-        
-        
-        return metrics
+    # Step 3: evaluation mask
+    eval_mask = get_eval_mask()
+    eval_mask = eval_mask.sel(lat=downscaled_fcst.lat, lon=downscaled_fcst.lon)
+
+    # Step 4: compute different metrics
+    metrics_bl = compute_eval_metrics(baseline, obs, eval_mask )
+    metrics_dfcst = compute_eval_metrics(downscaled_fcst, obs, eval_mask)
+    
+    metrics_dfcst['fcst_type'] = 'Generator'
+    metrics_bl['fcst_type'] = 'Baseline'
+    metrics = xr.concat([metrics_dfcst, metrics_bl],dim = "fcst_type")
+    metrics
+    
+    print("Compute metrics:")
+    with ProgressBar():
+        metrics.load() # execute fss computation  
+    
+    # Step 5: save metrics to file 
+    
+    
+    return metrics
     
 
 
