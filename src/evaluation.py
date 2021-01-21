@@ -245,13 +245,10 @@ def compute_eval_metrics(fcst, obs, eval_mask = None, metrics = ['RMSE', 'FSS', 
     """
     
     
-    if (not 'time' in fcst.dims):
-        # fcst and obs have different time dimension names --> need to be the same
-        fcst = fcst.rename({'valid_time':'time'})
         
     # rechunking necessary for performance 
-    fcst = fcst.chunk({'time':1})
-    obs = obs.chunk({'time':1}) 
+    fcst = fcst.chunk({'valid_time':1})
+    obs = obs.chunk({'valid_time':1}) 
     
     # apply eval mask: 
     if eval_mask is not None:
@@ -312,7 +309,8 @@ def evaluate_downscaled_fcst(coarse_fcst, downscaled_fcst, obs, save_to=None, **
         
     obs = obs.sel(lat=downscaled_fcst.lat, lon=downscaled_fcst.lon)
     obs = obs.sel(time = downscaled_fcst.valid_time)    
-        
+
+    obs = obs.rename({'time':'valid_time'})  # we need consistent time naming
         
     
         
