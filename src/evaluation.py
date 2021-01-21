@@ -5,7 +5,7 @@ import xskillscore as xs
 from dask.diagnostics import ProgressBar
 from sklearn.metrics import f1_score
 import matplotlib.pyplot as plt
-
+from datetime import date
 
 """ Evaluation functions and classes (??) 
 # Let's ignore ensemble dimension for a start. 
@@ -308,8 +308,7 @@ def evaluate_downscaled_fcst(coarse_fcst, downscaled_fcst, obs, save_to=None, **
         except: "coars_fcst input must be precipitation only." 
         
     obs = obs.sel(lat=downscaled_fcst.lat, lon=downscaled_fcst.lon)
-    obs = obs.sel(time = downscaled_fcst.valid_time)    
-
+    obs = obs.sel(time = downscaled_fcst.valid_time.values)    
     obs = obs.rename({'time':'valid_time'})  # we need consistent time naming
         
     
@@ -324,7 +323,7 @@ def evaluate_downscaled_fcst(coarse_fcst, downscaled_fcst, obs, save_to=None, **
 
     # Step 4: compute different metrics
     metrics_bl = compute_eval_metrics(baseline, obs, eval_mask )
-    metrics_dfcst = compute_eval_metrics(downscaled_fcst, obs, eval_mask)
+    metrics_dfcst = compute_eval_metrics(downscaled_fcst, obs, eval_mask, **kws)
     
     metrics_dfcst['fcst_type'] = 'Generator'
     metrics_bl['fcst_type'] = 'Baseline'
@@ -336,8 +335,12 @@ def evaluate_downscaled_fcst(coarse_fcst, downscaled_fcst, obs, save_to=None, **
         metrics.load() # execute fss computation  
     
     # Step 5: save metrics to file 
-    
-    
+    githash = !git rev-parse HEAD
+    metrics.attrs['git_hash_during_creation'] = githash[0]
+    metrics.attrs['date_of_computation'] = date.today().strftime("%d/%m/%Y")
+    if save_to: 
+        metrics.to_netcdf(save_to)
+
     return metrics
     
 
