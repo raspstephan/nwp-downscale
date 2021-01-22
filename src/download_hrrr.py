@@ -39,6 +39,8 @@ def main(start_date, stop_date, tmp_path, save_path, delete_grib=True, check_exi
                 # Convert from kg/m^2 to mm
                 da = da / 997 * 1000
                 da.to_netcdf(nc_fn)
+                da.close()
+                [da.close() for da in das]
                 
             except HTTPError:
                     print('Missing:', aws_path)
