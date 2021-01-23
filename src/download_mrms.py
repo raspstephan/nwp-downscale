@@ -9,88 +9,76 @@ from zipfile import ZipFile
 from fire import Fire
 import urllib.request
 from urllib.error import HTTPError
-
-variables = [
-    'MultiSensor_QPE_{}H_Pass1',
-    'MultiSensor_QPE_{}H_Pass2',
-    'RadarOnly_QPE_{}H',
-    'RadarQualityIndex',
-]
-        
-        
-def download_and_extract(year, month, day, hour, tmp_path, save_path, dt, delete=True, zip_fn=None, delete_grib=True):
-    zip_fn = zip_fn or download_nrms_from_cache(year, month, day, hour, tmp_path)
-    unzip_file(zip_fn, tmp_path)
-    for v in variables:
-        v = v.format(str(dt).zfill(2))
-        try:
-            grib_fn = move_relevant_file(year, month, day, hour, v, tmp_path, save_path)
-            ds = xr.open_dataset(grib_fn, engine='cfgrib')
-            ds = ds.rename({
-                'paramId_0': 'tp',
-                'latitude': 'lat',
-                'longitude': 'lon',
-            }).drop(['valid_time', 'heightAboveSea', 'step']).expand_dims(dim='time')
-            nc_fn = grib_fn.rstrip('.grib2') + '.nc'
-            ds.to_netcdf(nc_fn)
-            ds.close()
-            if delete_grib:
-                os.remove(grib_fn)
-        except FileNotFoundError:
-            print(f'File not found: {v}')
-    if delete:
-        month = str(month).zfill(2)
-        day = str(day).zfill(2)
-        hour = str(hour).zfill(2)
-        os.remove(zip_fn)
-        shutil.rmtree(f'{tmp_path}/{year}{month}{day}{hour}')
-        
-
-def move_relevant_file(year, month, day, hour, variable, tmp_path, save_path):
-    month = str(month).zfill(2)
-    day = str(day).zfill(2)
-    hour = str(hour).zfill(2)
-    fn = f'MRMS_{variable}_00.00_{year}{month}{day}-{hour}0000.grib2'
-    gz_fn = f'{tmp_path}/{year}{month}{day}{hour}/CONUS/{variable}/{fn}.gz'
-    os.makedirs(f'{save_path}/{variable}', exist_ok=True)
-    save_fn  = f'{save_path}/{variable}/{fn}'
-    gunzip_file(gz_fn, save_fn)
-    return save_fn
-
     
 def gunzip_file(gz_fn, out_fn=None):
     if not out_fn: out_fn = gz_fn[:-3]
     with gzip.open(gz_fn, 'rb') as f_in:
         with open(out_fn, 'wb') as f_out:
             shutil.copyfileobj(f_in, f_out)
+    return out_fn
                  
 
-def unzip_file(zip_fn, tmp_path):
-    zf = ZipFile(zip_fn, 'r')
-    zf.extractall(tmp_path)
-    zf.close()
-    
-
-def download_nrms_from_cache(year, month, day, hour, path):
-    month = str(month).zfill(2)
-    day = str(day).zfill(2)
-    hour = str(hour).zfill(2)
-    fn = f'{year}{month}{day}{hour}.zip'
-    url = f"https://mrms.agron.iastate.edu/{year}/{month}/{day}/{fn}"
-    zip_fn = f'{path}/{fn}'
-    urllib.request.urlretrieve(url, zip_fn)
-    return zip_fn
+def download_mrms_from_server(year, month, day, hour, path):
+    fn = f'RadarOnly_QPE_01H_00.00_{year}{month}{day}-{hour}0000.grib2.gz'
+    url = f"https://mtarchive.geol.iastate.edu/{year}/{month}/{day}/mrms/ncep/RadarOnly_QPE_01H/" + fn
+    gz_fn = f'{path}/{fn}'
+    urllib.request.urlretrieve(url, gz_fn)
+    return gz_fn
 
 
-def download_loop(start_date, stop_date, dt, tmp_path, save_path, delete=True, delete_grib=True):
-    dates = pd.DatetimeIndex(np.arange(start_date, stop_date, dt, dtype='datetime64[h]'))
+def download_loop(start_date, stop_date, tmp_path, save_path, delete_grib=True, aggregate=True,
+                  check_exists=True
+):
+    dates = pd.DatetimeIndex(np.arange(start_date, stop_date, dtype='datetime64[h]'))
     for d in tqdm(dates):
-        print(d)
-        try:
-            download_and_extract(
-                d.year, d.month, d.day, d.hour, tmp_path, save_path, dt, delete=delete, delete_grib=delete_grib)
-        except:
-            print('Missing')
+        month = str(d.month).zfill(2)
+        day = str(d.day).zfill(2)
+        hour = str(d.hour).zfill(2)
+        nc_fn = save_path + '/RadarOnly_QPE_01H/' + f'RadarOnly_QPE_01H_00.00_{d.year}{month}{day}-{hour}0000.nc'
+        if not (check_exists and os.path.exists(nc_fn)):
+            print(d)
+            try:
+                gz_fn = download_mrms_from_server(d.year, month, day, hour, tmp_path)
+                grib_fn = gunzip_file(gz_fn)
+                ds = xr.open_dataset(grib_fn, engine='cfgrib')
+                ds = ds.rename({
+                    'paramId_0': 'tp',
+                    'latitude': 'lat',
+                    'longitude': 'lon',
+                }).drop(['valid_time', 'heightAboveSea', 'step']).expand_dims(dim='time')
+                ds.to_netcdf(nc_fn)
+                ds.close()
+                if delete_grib:
+                    os.remove(gz_fn)
+                    os.remove(grib_fn)
+            except HTTPError:
+                print('Missing')
+        else:
+            print('Exists:', nc_fn)
+        
+        if aggregate:
+            if d.hour % 6 == 0:
+                agg_fn = save_path + '/RadarOnly_QPE_06H/' + f'RadarOnly_QPE_06H_00.00_{d.year}{month}{day}-{hour}0000.nc'
+                print(agg_fn)
+                if not (check_exists and os.path.exists(agg_fn)):
+                    try:
+                        hours = []
+                        for h in range(d.hour-5, d.hour+1):
+                            if h >= 0: hours.append(h)
+                            else: hours.append(24 + h)
+                        nc_fns = [
+                            save_path + '/RadarOnly_QPE_01H/' + f'RadarOnly_QPE_01H_00.00_{d.year}{month}{day}-{str(h).zfill(2)}0000.nc'
+                            for h in hours
+                            ]
+                        print(nc_fns)
+                        ds = xr.open_mfdataset(nc_fns).load()
+                        ds = ds.rolling(time=6).sum().dropna('time')
+                        ds.to_netcdf(agg_fn)
+                        ds.close()
+                    except FileNotFoundError:
+                        print('Not all 1H files available', agg_fn)
+                else:
+                    print('Exists:', agg_fn)
 
 if __name__ == '__main__':
     Fire(download_loop)
