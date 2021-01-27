@@ -178,7 +178,7 @@ def get_eval_mask(criterion='radarquality', rq_threshold = -1,
         eval_mask = rq>rq_threshold
 
         # hardcode: get proper lon-lat values for rq-mask. Somehow weird!
-        fn = "/datadrive/mrms/4km/RadarOnly_QPE_06H/MRMS_RadarOnly_QPE_06H_00.00_20201001-000000.nc"
+        fn = "/datadrive/mrms_old/4km/RadarOnly_QPE_06H/MRMS_RadarOnly_QPE_06H_00.00_20201001-000000.nc"
         ds = xr.open_dataset(fn)
         assert eval_mask.lat.shape ==ds.lat.shape
         eval_mask['lat'] = ds.lat 
@@ -189,7 +189,8 @@ def get_eval_mask(criterion='radarquality', rq_threshold = -1,
 
 
 def get_baseline(X, y, kind = 'interpol', 
-                 X_lon=None, X_lat=None, y_lon = None, y_lat =None ): 
+                 X_lon=None, X_lat=None, y_lon = None, y_lat =None, 
+                 HRRR_fdir = '/datadrive/hrrr/4km/total_precipitation/' ): 
     """ Function computes baseline, i.e. interpolates X onto the grid of y. 
     
     This is probably overkill for now, but might be handy later on when we have different baselines
@@ -199,7 +200,7 @@ def get_baseline(X, y, kind = 'interpol',
     
     X: Tigge dataset, or sample. Can be xarray format or numpy
     y: Target radar dataset or radar sample corresponding to X. Can be xarray format or numpy 
-    kind: kind of baseline to use. So for only linear interpolation is used
+    kind: kind of baseline to use: ['interpol', 'HRRR']
     X_lon,X_lat: arrays of longitudes and latitudes for X. Need to be specified only if X is numpy array.
     y_lon,y_lat: arrays of longitudes and latitudes for y. Need to be specified only if y is numpy array.
     
@@ -223,9 +224,16 @@ def get_baseline(X, y, kind = 'interpol',
     
         
     # Do the interpolation 
-    y_baseline = X.interp_like(y, kwargs = dict(fill_value='extrapolate')) 
-    # fill_value: for scipy interoplate, extrapolates values at the boundaries, so no Nans appear! 
-    
+    if kind =='interpol': 
+        y_baseline = X.interp_like(y, kwargs = dict(fill_value='extrapolate')) 
+        # fill_value: for scipy interoplate, extrapolates values at the boundaries, so no Nans appear! 
+    elif kind =='HRRR': # load HRRR data 
+        hrrr = xr.open_mfdataset(HRRR_fdir+ '*')
+        hrrr= hrrr.tp.diff('lead_time').sel(lead_time = X.lead_time)
+        hrrr['valid_time'] = hrrr.init_time + hrrr.lead_time
+        hrrr= hrrr.swap_dims({'init_time': 'valid_time'})
+        y_baseline = hrrr # This is not tested and probably not yet finished!
+        
     assert y_baseline.shape == y.shape, 'y_baseline and y do not have the same size!'
     return y_baseline
     
@@ -291,7 +299,7 @@ def compute_eval_metrics(fcst, obs, eval_mask = None, metrics = ['RMSE', 'FSS', 
     return metrics_ds
 
 
-def evaluate_downscaled_fcst(coarse_fcst, downscaled_fcst, obs, save_to=None, **kws):
+def evaluate_downscaled_fcst(coarse_fcst, downscaled_fcst, obs, baselines = ['interpol', 'HRRR'],  save_to=None, **kws):
     """ xarrays as input 
     Parameter: 
     coarse_fcst (e.g. tigge data): xr.dataarray precipitation
@@ -314,21 +322,29 @@ def evaluate_downscaled_fcst(coarse_fcst, downscaled_fcst, obs, save_to=None, **
         
     
         
-    # Step 2: compute baseline 
-    baseline = get_baseline(coarse_fcst, obs)
-    assert baseline.shape == downscaled_fcst.shape, 'baseline and downscaled_fcst have different shapes!'
+    # Step 2: compute baselines
+    bl_dict = dict()
+    for bl in baselines: 
+        bl_dict[bl] = get_baseline(coarse_fcst, obs, kind=bl)
+    #assert baseline_0.shape == downscaled_fcst.shape, 'baseline and downscaled_fcst have different shapes!'
+        
+
     
     # Step 3: evaluation mask
     eval_mask = get_eval_mask()
     eval_mask = eval_mask.sel(lat=downscaled_fcst.lat, lon=downscaled_fcst.lon)
 
     # Step 4: compute different metrics
-    metrics_bl = compute_eval_metrics(baseline, obs, eval_mask )
-    metrics_dfcst = compute_eval_metrics(downscaled_fcst, obs, eval_mask, **kws)
+    metrics_list = []
+    for bl, fcst in bl_dict.items():
+        metrics = compute_eval_metrics(fcst, obs, eval_mask )       
+        metrics['fcst_type']  = bl + '_baseline'
+        metrics_list.append(metrics)
     
+    metrics_dfcst = compute_eval_metrics(downscaled_fcst, obs, eval_mask, **kws)
     metrics_dfcst['fcst_type'] = 'Generator'
-    metrics_bl['fcst_type'] = 'Baseline'
-    metrics = xr.concat([metrics_dfcst, metrics_bl],dim = "fcst_type")
+    metrics_list.append(metrics_dfcst)
+    metrics = xr.concat(metrics_list,dim = "fcst_type")
     metrics
     
     print("Compute metrics:")
