@@ -62,14 +62,13 @@ def download_loop(start_date, stop_date, tmp_path, save_path, delete_grib=True, 
                 print(agg_fn)
                 if not (check_exists and os.path.exists(agg_fn)):
                     try:
-                        hours = []
-                        for h in range(d.hour-5, d.hour+1):
-                            if h >= 0: hours.append(h)
-                            else: hours.append(24 + h)
-                        nc_fns = [
-                            save_path + '/RadarOnly_QPE_01H/' + f'RadarOnly_QPE_01H_00.00_{d.year}{month}{day}-{str(h).zfill(2)}0000.nc'
-                            for h in hours
-                            ]
+                        nc_fns = []
+                        for h in range(-5, 1):
+                            dd = d + np.timedelta64(h, 'h')
+                            month = str(dd.month).zfill(2)
+                            day = str(dd.day).zfill(2)
+                            hour = str(dd.hour).zfill(2)
+                            nc_fns.append(save_path + '/RadarOnly_QPE_01H/' + f'RadarOnly_QPE_01H_00.00_{dd.year}{month}{day}-{hour}0000.nc')
                         print(nc_fns)
                         ds = xr.open_mfdataset(nc_fns).load()
                         ds = ds.rolling(time=6).sum().dropna('time')
