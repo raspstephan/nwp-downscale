@@ -6,6 +6,7 @@ from dask.diagnostics import ProgressBar
 from sklearn.metrics import f1_score
 import matplotlib.pyplot as plt
 from datetime import date
+import subprocess
 
 """ Evaluation functions and classes (??) 
 # Let's ignore ensemble dimension for a start. 
@@ -335,8 +336,10 @@ def evaluate_downscaled_fcst(coarse_fcst, downscaled_fcst, obs, save_to=None, **
         metrics.load() # execute fss computation  
     
     # Step 5: save metrics to file 
-    githash = !git rev-parse HEAD
-    metrics.attrs['git_hash_during_creation'] = githash[0]
+    process = subprocess.Popen(['git', 'rev-parse', 'HEAD'], shell=False, stdout=subprocess.PIPE)
+    git_head_hash = process.communicate()[0].strip()
+    git_head_hash
+    metrics.attrs['git_hash_at_creation'] = git_head_hash
     metrics.attrs['date_of_computation'] = date.today().strftime("%d/%m/%Y")
     if save_to: 
         metrics.to_netcdf(save_to)
