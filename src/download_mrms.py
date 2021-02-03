@@ -31,6 +31,17 @@ def download_loop(start_date, stop_date, tmp_path, save_path, delete_grib=True, 
 ):
     dates = pd.DatetimeIndex(np.arange(start_date, stop_date, dtype='datetime64[h]'))
     for d in tqdm(dates):
+        if aggregate:
+            # Check if 6 hour file exists
+            next_6 = d.hour % 6
+            if next_6 == 0: next_6 = 6
+            next_6 = d + np.timedelta64(6 - (d.hour % 6), 'h')
+            agg_fn = save_path + '/RadarOnly_QPE_06H/' + f'RadarOnly_QPE_06H_00.00_{next_6.year}{str(next_6.month).zfill(2)}{str(next_6.day).zfill(2)}-{str(next_6.hour).zfill(2)}0000.nc'
+            print(agg_fn)
+            if os.path.exists(agg_fn):
+                print('Exists:', agg_fn)
+                continue
+
         month = str(d.month).zfill(2)
         day = str(d.day).zfill(2)
         hour = str(d.hour).zfill(2)
@@ -51,7 +62,7 @@ def download_loop(start_date, stop_date, tmp_path, save_path, delete_grib=True, 
                 if delete_grib:
                     os.remove(gz_fn)
                     os.remove(grib_fn)
-            except HTTPError:
+            except (HTTPError, gzip.BadGzipFile):
                 print('Missing')
         else:
             print('Exists:', nc_fn)
@@ -62,14 +73,13 @@ def download_loop(start_date, stop_date, tmp_path, save_path, delete_grib=True, 
                 print(agg_fn)
                 if not (check_exists and os.path.exists(agg_fn)):
                     try:
-                        hours = []
-                        for h in range(d.hour-5, d.hour+1):
-                            if h >= 0: hours.append(h)
-                            else: hours.append(24 + h)
-                        nc_fns = [
-                            save_path + '/RadarOnly_QPE_01H/' + f'RadarOnly_QPE_01H_00.00_{d.year}{month}{day}-{str(h).zfill(2)}0000.nc'
-                            for h in hours
-                            ]
+                        nc_fns = []
+                        for h in range(-5, 1):
+                            dd = d + np.timedelta64(h, 'h')
+                            month = str(dd.month).zfill(2)
+                            day = str(dd.day).zfill(2)
+                            hour = str(dd.hour).zfill(2)
+                            nc_fns.append(save_path + '/RadarOnly_QPE_01H/' + f'RadarOnly_QPE_01H_00.00_{dd.year}{month}{day}-{hour}0000.nc')
                         print(nc_fns)
                         ds = xr.open_mfdataset(nc_fns).load()
                         ds = ds.rolling(time=6).sum().dropna('time')
@@ -77,6 +87,10 @@ def download_loop(start_date, stop_date, tmp_path, save_path, delete_grib=True, 
                         ds.close()
                     except FileNotFoundError:
                         print('Not all 1H files available', agg_fn)
+                    for nc_fn in nc_fns:
+                        if os.path.exists(nc_fn): 
+                            print('Delete:', nc_fn)
+                            os.remove(nc_fn)
                 else:
                     print('Exists:', agg_fn)
 
