@@ -157,12 +157,42 @@ def compare_fields(X, y_G = None, y_b = None, y=None,
     
     return fig, axs
 
+def get_hrrr_mask(year = '2020', fdir = '/datadrive/hrrr/4km/'):
+    """ Function to get the hrrr mask from interpolation. 
+    Not very elegantly coded: we compute the yearly maximum
+    at each grid point. Assuming that every valid grid point rains, 
+    the mask is defined to exclude all grid points with zero precip 
+    in the whole year. 
+    year: year as str to be used 
+    fdir: directory where to save the resulting data
+    """
+    try: 
+        fn_mask = fdir+year+'_hrrr_interpolation_mask.nc'
+        return xr.open_dataarray(fn_mask) 
+    except:
+        fn = '/datadrive/hrrr/4km/total_precipitation/'+year+'*.nc'
+        hrrr_ds = xr.open_mfdataset(fn)
+        hrrr_ds= hrrr_ds.tp.diff('lead_time').sel(lead_time =np.timedelta64(12, 'h'))
+        hrrr_ds['valid_time'] = hrrr_ds.init_time + hrrr_ds.lead_time
+        hrrr_ds= hrrr_ds.swap_dims({'init_time': 'valid_time'})
+        mask = (hrrr_ds.max('valid_time')>0)
+        
+        process = subprocess.Popen(['git', 'rev-parse', 'HEAD'], shell=False, stdout=subprocess.PIPE)
+        git_head_hash = process.communicate()[0].strip()
+        mask.attrs['git_hash_at_creation'] = str(git_head_hash)
+        mask.attrs['year']=year
+        mask.attrs['date_of_computation'] = date.today().strftime("%d/%m/%Y")
+
+        # I don't have writing permission
+        #mask.to_netcdf(fdir+year+'_hrrr_interpolation_mask.nc')
+        return mask.compute() 
+
 def get_eval_mask(criterion='radarquality', rq_threshold = -1, 
                 rq_fn = '/datadrive/mrms/4km/RadarQuality.nc', ds = None): 
     """ Returns a lon-lat mask which area we evaluate on. 
         The radar quality mask is used to determine this. 
 
-        criterion: criterion to apply. ('radarquality') 
+        criterion: criterion to apply. ('radarquality', 'hrr+radar) 
         rq_threshold: threshold for 'radarquality'-criterion.   
                     -1 covers everything with radar availability. 
                     Larger thresholds require higher quality. 
@@ -173,7 +203,7 @@ def get_eval_mask(criterion='radarquality', rq_threshold = -1,
             as the radar data. 
     """
     # TODO: consider time dependece of radarmask! (do we need to inlcude that?)
-    if criterion =='radarquality': # use rq>rq-threshold as criterion 
+    if criterion in ['radarquality', 'hrr+radar']: # use rq>rq-threshold as criterion 
         rq = xr.open_dataarray(rq_fn)
         eval_mask = rq>rq_threshold
 
@@ -184,6 +214,16 @@ def get_eval_mask(criterion='radarquality', rq_threshold = -1,
         eval_mask['lat'] = ds.lat 
         assert eval_mask.lon.shape ==ds.lon.shape
         eval_mask['lon'] = ds.lon
+    
+    if criterion =='hrr+radar': 
+        hrrr_mask = get_hrrr_mask(year = '2020', fdir = '/datadrive/')
+        # somehow lon lats are not absolutely identical! 
+        assert hrrr_mask.lat.shape ==ds.lat.shape
+        hrrr_mask['lat'] = ds.lat 
+        assert hrrr_mask.lon.shape ==ds.lon.shape
+        hrrr_mask['lon'] = ds.lon
+
+        eval_mask = eval_mask * hrrr_mask 
 
     return eval_mask
 
