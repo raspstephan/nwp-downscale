@@ -29,7 +29,7 @@ class TiggeMRMSDataset(Dataset):
     """
     def __init__(self, tigge_dir, tigge_vars, mrms_dir, lead_time=12, patch_size=512, rq_fn=None, 
                  const_fn=None, const_vars=None, scale=True, data_period=None, first_days=None,
-                 mins=None, maxs=None, pad_tigge=0, tp_log=None):
+                 val_days=None, split=None, mins=None, maxs=None, pad_tigge=0, tp_log=None):
         """
         tigge_dir: Path to TIGGE data without variable name
         tigge_vars: List of TIGGE variables
@@ -40,6 +40,7 @@ class TiggeMRMSDataset(Dataset):
         const_fn: Path to constants file
         cons_vars: Variables to use from constants file
         data_period: Tuple indicating which time period to load
+        val_days: Use first N days of each month for validation
         first_days: Use first X days from each month. Subsampling.
         split: Either "train" or "valid"
         scale: Do min-max scaling
@@ -51,6 +52,8 @@ class TiggeMRMSDataset(Dataset):
         self.lead_time = lead_time
         self.patch_size = patch_size
         self.first_days = first_days
+        self.val_days = val_days
+        self.split= split
         
         # Open datasets
         self.tigge = xr.merge([
@@ -66,6 +69,7 @@ class TiggeMRMSDataset(Dataset):
             self.tigge = self.tigge.sel(init_time=slice(*data_period))
             self.mrms = self.mrms.sel(time=slice(*data_period))
         self._crop_times()   # Only take times that overlap and (potentially) do train/val split
+        print('Loading data')
         self.tigge.load(); self.mrms.load()   # Load datasets into RAM
         if tp_log:
             self.tigge['tp'] = log_trans(self.tigge['tp'], tp_log)
@@ -112,9 +116,14 @@ class TiggeMRMSDataset(Dataset):
         # Compute intersect
         self.overlap_times = np.intersect1d(self.mrms.time, self.tigge.valid_time)
 
-        if self.first_days: # Split into traina dn valid based on day of month
+        if self.first_days: # Only select first X days
             dt = pd.to_datetime(self.overlap_times)
             self.overlap_times = self.overlap_times[dt.day <= self.first_days]
+        if self.val_days: # Split into train and valid based on day of month
+            dt = pd.to_datetime(self.overlap_times)
+            self.overlap_times = self.overlap_times[
+                dt.day <= self.val_days if self.split == 'valid' else dt.day > self.val_days
+            ]
         
         # Apply selection
         self.mrms = self.mrms.sel(time=self.overlap_times)

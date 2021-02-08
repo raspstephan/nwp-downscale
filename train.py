@@ -6,6 +6,9 @@ import torch
 from git import Repo
 from datetime import datetime
 import os
+import dask
+# This is to silence a large chunk warning. I do not know how this affects performance!
+dask.config.set({"array.slicing.split_large_chunks": True})
 
 def train(
     tigge_dir=None,
@@ -14,6 +17,9 @@ def train(
     const_fn=None,
     const_vars=None,
     rq_fn=None,
+    train_period=None, 
+    test_period=None,
+    first_days=None,
     val_days=None,
     batch_size=None,
     learning_rate=None,
@@ -33,8 +39,10 @@ def train(
         rq_fn=rq_fn,
         const_fn=const_fn,
         const_vars=const_vars,
+        first_days=first_days,
+        data_period=train_period,
         val_days=val_days,
-        split='train'
+        split='train',
     )
     ds_valid = TiggeMRMSDataset(
         tigge_dir=tigge_dir,
@@ -43,13 +51,28 @@ def train(
         rq_fn=rq_fn,
         const_fn=const_fn,
         const_vars=const_vars,
+        first_days=first_days,
+        data_period=train_period,
         val_days=val_days,
         split='valid',
         mins=ds_train.mins,
         maxs=ds_train.maxs
     )
-    print('Training samples:', len(ds_train))
-    print('Validation samples:', len(ds_valid))
+    ds_test = TiggeMRMSDataset(
+        tigge_dir=tigge_dir,
+        tigge_vars=tigge_vars,
+        mrms_dir=mrms_dir,
+        rq_fn=rq_fn,
+        const_fn=const_fn,
+        const_vars=const_vars,
+        first_days=first_days,
+        data_period=test_period,
+        mins=ds_train.mins,
+        maxs=ds_train.maxs
+    )
+    print('Train samples:', len(ds_train))
+    print('Valid samples:', len(ds_valid))
+    print('Test samples:', len(ds_test))
 
     # Create dataloaders with weighted random sampling
     sampler_train = torch.utils.data.WeightedRandomSampler(
@@ -105,6 +128,11 @@ def train(
         preds = create_valid_predictions(model, ds_valid)
         preds.to_netcdf(save_path)
 
+        save_path = f'{save_dir}/{exp_id}_test.nc'
+        print('Saving prediction as:', save_path)
+        preds = create_valid_predictions(model, ds_test)
+        preds.to_netcdf(save_path)
+
         time_stamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
         cwd = os.getcwd()
         git_hash = str(Repo(cwd).active_branch.commit)
@@ -137,7 +165,16 @@ if __name__ == '__main__':
     p.add_argument('--rq_fn', type=str, default=None, 
         help='Path to radar quality file'
     )
-    p.add_argument('--val_days', type=int, default=7, 
+    p.add_argument('--train_period', type=str, default=['2018', '2019'], nargs='+',
+        help='Years to be used for training. Default [2018, 2019].'
+    )
+    p.add_argument('--test_period', type=str, default=['2020', '2020'], nargs='+',
+        help='Years to be used for testing. Default [2020, 2020].'
+    )
+    p.add_argument('--first_days', type=int, default=None, 
+        help='First N days of each month used from data'
+    )
+    p.add_argument('--val_days', type=int, default=6, 
         help='First N days of each month used for validation'
     )
     p.add_argument('--nres', type=int, default=3, 
