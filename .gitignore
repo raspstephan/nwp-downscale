@@ -136,3 +136,4 @@ dmypy.json
 
 ./data/
 nwp-downscale-workspaceMH.code-workspace
+notebooks/tmp/

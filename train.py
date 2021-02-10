@@ -1,4 +1,5 @@
 from src.models import *
+from src.trainer import *
 from src.dataloader import *
 from src.utils import tqdm, device
 from configargparse import ArgParser
@@ -24,6 +25,8 @@ def train(
     batch_size=None,
     learning_rate=None,
     epochs=None,
+    early_stopping_patience=None,
+    restore_best_weights=None,
     save_dir=None,
     exp_id=None,
     nres=None,
@@ -106,7 +109,9 @@ def train(
         optimizer,
         criterion,
         dl_train,
-        dl_valid
+        dl_valid,
+        early_stopping_patience=early_stopping_patience,
+        restore_best_weights=restore_best_weights
     )
 
     # Train model
@@ -194,6 +199,12 @@ if __name__ == '__main__':
     )
     p.add_argument('--epochs', type=int, default=10, 
         help='Epochs'
+    )
+    p.add_argument('--early_stopping_patience', type=int, default=None, 
+        help='Patience for early stopping. None for no early stopping'
+    )
+    p.add_argument('--restore_best_weights', type=bool, default=True, 
+        help='Restore weight for lowest validation loss when early stopping is on.'
     )
     p.add_argument('--save_dir', type=str, default=None, 
         help='Path to save model. Do not save if None.'
