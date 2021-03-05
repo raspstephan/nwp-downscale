@@ -61,11 +61,11 @@ class TiggeMRMSDataset(Dataset):
         ])  # Merge all TIGGE variables
         self.tigge['tp'] = self.tigge.tp.diff('lead_time')   # Need to take diff to get 6h accumulation
         self.tigge = self.tigge.sel(lead_time=np.timedelta64(lead_time, 'h'))
-        self.mrms = xr.open_mfdataset(f'{mrms_dir}/*.nc').tp
+        self.mrms = xr.open_mfdataset(f'{mrms_dir}/*.nc').tp   # NOTE: Takes around 30s
         # Make sure there are no negative values
         self.tigge['tp'] = self.tigge['tp'].where(self.tigge['tp'] >= 0, 0)  
         self.mrms = self.mrms.where(self.mrms >= 0, 0)
-        if data_period:
+        if data_period:   # NOTE: This will not speed up the open_mfdataset step
             self.tigge = self.tigge.sel(init_time=slice(*data_period))
             self.mrms = self.mrms.sel(time=slice(*data_period))
         self._crop_times()   # Only take times that overlap and (potentially) do train/val split
