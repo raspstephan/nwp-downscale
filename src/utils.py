@@ -16,7 +16,8 @@ if torch.cuda.is_available():
 else:
     device = torch.device("cpu")
 
-if isnotebook():
-    import tqdm.notebook as tqdm
-else:
-    import tqdm
+# if isnotebook():
+#     import tqdm.notebook as tqdm
+# else:
+#     import tqdm
+import tqdm
