@@ -8,6 +8,7 @@ from git import Repo
 from datetime import datetime
 import os
 import dask
+import logging
 # This is to silence a large chunk warning. I do not know how this affects performance!
 dask.config.set({"array.slicing.split_large_chunks": True})
 
@@ -22,6 +23,12 @@ def train(
     test_period=None,
     first_days=None,
     val_days=None,
+
+    SN=None,  # TODO: implement the four points here 
+    use_noise=None, 
+    cond_disc = None,
+    D_loss = None,
+    
     batch_size=None,
     learning_rate=None,
     epochs=None,
@@ -31,7 +38,7 @@ def train(
     exp_id=None,
     nres=None,
     nf=None,
-    relu_out=None
+    relu_out=None,
     ):
 
     # Allocate train and valid datasets
@@ -73,9 +80,9 @@ def train(
         mins=ds_train.mins,
         maxs=ds_train.maxs
     )
-    print('Train samples:', len(ds_train))
-    print('Valid samples:', len(ds_valid))
-    print('Test samples:', len(ds_test))
+    logging.info('Train samples:', len(ds_train))
+    logging.info('Valid samples:', len(ds_valid))
+    logging.info('Test samples:', len(ds_test))
 
     # Create dataloaders with weighted random sampling
     sampler_train = torch.utils.data.WeightedRandomSampler(
@@ -93,7 +100,7 @@ def train(
     )
 
     # Create network
-    print('Device:', device)
+    logging.info('Device:', device)
     model = Generator(
         nres=nres,
         nf_in=ds_train.input_vars,
@@ -181,6 +188,18 @@ if __name__ == '__main__':
     )
     p.add_argument('--val_days', type=int, default=6, 
         help='First N days of each month used for validation'
+    )
+    p.add_argument('--SN', type=bool, default=True, 
+        help='If true, uses spectral normalization for both Generator and Discriminator'
+    )
+    p.add_argument('--use_noise', type=bool, default=True, 
+        help='uses a noise vector for the Generator'
+    )
+    p.add_argument('--cond_disc', type=bool, default=True, 
+        help='If true, a conditional discriminator is used.'
+    )
+    p.add_argument('--D_loss', type=str, default='hinge', 
+        help='type of loss to be used in discriminator: {MSE, Wasserstein, hinge} '
     )
     p.add_argument('--nres', type=int, default=3, 
         help='Number of residual blocks before upscaling'
