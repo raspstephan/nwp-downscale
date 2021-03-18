@@ -88,7 +88,7 @@ class Generator(nn.Module):
         
         if spectralnorm: 
             self.conv_in = nn.utils.spectral_norm(self.conv_in)
-            self.conv_out = nn.utils.spectral_norm(self.conf_out)
+            self.conv_out = nn.utils.spectral_norm(self.conv_out)
         
         self.relu_out = relu_out
         self.use_noise = use_noise
