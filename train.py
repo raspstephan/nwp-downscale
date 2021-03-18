@@ -24,7 +24,7 @@ def train(
     first_days=None,
     val_days=None,
 
-    batchnorm = None, 
+    batch_norm = None, 
     spectralnorm=None,  # TODO: implement the four points here 
     use_noise=None, 
     cond_disc = None,
@@ -206,7 +206,7 @@ if __name__ == '__main__':
     p.add_argument('--val_days', type=int, default=6, 
         help='First N days of each month used for validation'
     )
-    p.add_argument('--batchnorm', type=bool, default=True, 
+    p.add_argument('--batch_norm', type=bool, default=True, 
         help='If true, uses batchnormalization for the Discriminator'
     )
     p.add_argument('--spectralnorm', type=bool, default=True, 
