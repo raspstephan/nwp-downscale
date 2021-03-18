@@ -1,4 +1,4 @@
-from src.models import *
+from src.models import Discriminator, Generator
 from src.trainer import *
 from src.dataloader import *
 from src.utils import tqdm, device
@@ -24,10 +24,12 @@ def train(
     first_days=None,
     val_days=None,
 
-    SN=None,  # TODO: implement the four points here 
+    batchnorm = None
+    spectralnorm=None,  # TODO: implement the four points here 
     use_noise=None, 
     cond_disc = None,
     D_loss = None,
+    disc_repeats = None
     
     batch_size=None,
     learning_rate=None,
@@ -99,27 +101,43 @@ def train(
         ds_valid, batch_size=batch_size, sampler=sampler_valid
     )
 
-    # Create network
+    # Create Generator 
     logging.info('Device:', device)
-    model = Generator(
+    gen = Generator(
         nres=nres,
         nf_in=ds_train.input_vars,
         nf=nf,
-        relu_out=relu_out
+        relu_out=relu_out, 
+        spectralnorm= spectralnorm,
+        use_noise = use_noise,
     ).to(device)
 
+    
+    # Create Discriminator
+    disc = Discriminator(  [16, 16, 32, 32, 64, 64], # maybe we should put this as input option
+        batch_norm = batch_norm,
+        sigmoid = disc_sigmoid,
+        conditional = cond_disc, 
+        spectralnorm = spectralnorm ).to(device)
+    
+    
+    
     # Setup trainer
     criterion = nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-    trainer = Trainer(
-        model,
-        optimizer,
-        criterion,
-        dl_train,
-        dl_valid,
-        early_stopping_patience=early_stopping_patience,
-        restore_best_weights=restore_best_weights
-    )
+    betas = (0.5, 0.999)
+    disc_optimizer = torch.optim.Adam(disc.parameters(), lr=learning_rate, betas=betas)
+    gen_optimizer = torch.optim.Adam(gen.parameters(), lr=learning_rate, betas=betas)
+    
+    
+    trainer = GANTrainer(gen, disc, 
+        gen_optimizer, disc_optimizer, 
+        dl_train, disc_repeats= disc_repeats,
+        l_loss='l1', 
+        dloss_type = D_loss,
+        #early_stopping_patience=early_stopping_patience,
+        #restore_best_weights=restore_best_weights
+        l_lambda=20)
+    
 
     # Train model
     trainer.fit(epochs=epochs)
@@ -189,7 +207,10 @@ if __name__ == '__main__':
     p.add_argument('--val_days', type=int, default=6, 
         help='First N days of each month used for validation'
     )
-    p.add_argument('--SN', type=bool, default=True, 
+    p.add_argument('--batchnorm', type=bool, default=True, 
+        help='If true, uses batchnormalization for the Discriminator'
+    )
+    p.add_argument('--spectralnorm', type=bool, default=True, 
         help='If true, uses spectral normalization for both Generator and Discriminator'
     )
     p.add_argument('--use_noise', type=bool, default=True, 
@@ -199,7 +220,10 @@ if __name__ == '__main__':
         help='If true, a conditional discriminator is used.'
     )
     p.add_argument('--D_loss', type=str, default='hinge', 
-        help='type of loss to be used in discriminator: {MSE, Wasserstein, hinge} '
+        help='type of loss to be used in discriminator: { Wasserstein, hinge} '
+    )
+    p.add_argument('--disc_repeats', type=int, default=5, 
+        help='How often to repeat discriminator learning per 1x gen.} '
     )
     p.add_argument('--nres', type=int, default=3, 
         help='Number of residual blocks before upscaling'
