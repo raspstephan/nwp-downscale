@@ -24,12 +24,13 @@ def train(
     first_days=None,
     val_days=None,
 
-    batchnorm = None
+    batchnorm = None, 
     spectralnorm=None,  # TODO: implement the four points here 
     use_noise=None, 
     cond_disc = None,
     D_loss = None,
-    disc_repeats = None
+    disc_repeats = None, 
+    sigmoid=None,
     
     batch_size=None,
     learning_rate=None,
@@ -116,7 +117,7 @@ def train(
     # Create Discriminator
     disc = Discriminator(  [16, 16, 32, 32, 64, 64], # maybe we should put this as input option
         batch_norm = batch_norm,
-        sigmoid = disc_sigmoid,
+        sigmoid = sigmoid,
         conditional = cond_disc, 
         spectralnorm = spectralnorm ).to(device)
     
@@ -134,8 +135,6 @@ def train(
         dl_train, disc_repeats= disc_repeats,
         l_loss='l1', 
         dloss_type = D_loss,
-        #early_stopping_patience=early_stopping_patience,
-        #restore_best_weights=restore_best_weights
         l_lambda=20)
     
 
@@ -221,6 +220,9 @@ if __name__ == '__main__':
     )
     p.add_argument('--D_loss', type=str, default='hinge', 
         help='type of loss to be used in discriminator: { Wasserstein, hinge} '
+    )
+    p.add_argument('--sigmoid', type=bool, default=False, 
+        help='If False, no sigmoid is applied at the end of the Disc. --> non-binary output. '
     )
     p.add_argument('--disc_repeats', type=int, default=5, 
         help='How often to repeat discriminator learning per 1x gen.} '

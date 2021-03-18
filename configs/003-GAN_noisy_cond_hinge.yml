@@ -4,7 +4,7 @@ tigge_vars: [total_precipitation]
 mrms_dir: /datadrive_ssd/mrms/4km/RadarOnly_QPE_06H/
 rq_fn: /datadrive_ssd/mrms/4km/RadarQuality.nc
 save_dir: /datadrive_ssd/saved_models
-epochs: 10
+epochs: 25
 nres: 3
 nf: 64
 relu_out: False
