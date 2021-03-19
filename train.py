@@ -12,6 +12,7 @@ import logging
 # This is to silence a large chunk warning. I do not know how this affects performance!
 dask.config.set({"array.slicing.split_large_chunks": True})
 
+
 def train(
     tigge_dir=None,
     tigge_vars=None,
@@ -41,6 +42,21 @@ def train(
     nf=None,
     relu_out=None,
     ):
+    
+    # 
+    save_dir = f'{save_dir}/{exp_id}'
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+    
+    logging.basicConfig(level=logging.INFO, 
+            handlers=[logging.FileHandler(f'{save_dir}/{exp_id}.log', mode='w'), logging.StreamHandler()])
+    time_stamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+    cwd = os.getcwd()
+    git_hash = str(Repo(cwd).active_branch.commit)
+    logging.info(f'starting_time: {time_stamp}')
+    logging.info(f'githash: {git_hash}')
+    
+       
     
     # Allocate train and valid datasets
     ds_train = TiggeMRMSDataset(
@@ -134,37 +150,39 @@ def train(
         dloss_type = D_loss,
         l_lambda=20)
     
-
+    print(trainer)
+    
     # Train model
     trainer.fit(epochs=epochs)
 
     # Save model and valid predictions
     if save_dir:
-        save_path = f'{save_dir}/{exp_id}.pt'
-        print('Saving model as:', save_path)
-        torch.save(trainer, save_path)
+
         
         save_path = f'{save_dir}/{exp_id}_train.nc'
-        print('Saving prediction as:', save_path)
+        logging.info('Saving prediction as:', save_path)
         preds = create_valid_predictions(gen, ds_train)
         preds.to_netcdf(save_path)
 
         save_path = f'{save_dir}/{exp_id}_valid.nc'
-        print('Saving prediction as:', save_path)
+        logging.info('Saving prediction as:', save_path)
         preds = create_valid_predictions(gen, ds_valid)
         preds.to_netcdf(save_path)
 
         save_path = f'{save_dir}/{exp_id}_test.nc'
-        print('Saving prediction as:', save_path)
+        logging.info('Saving prediction as:', save_path)
         preds = create_valid_predictions(gen, ds_test)
         preds.to_netcdf(save_path)
 
-        time_stamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-        cwd = os.getcwd()
-        git_hash = str(Repo(cwd).active_branch.commit)
-        with open(f'{save_dir}/{exp_id}.log', 'w+') as f:
-            f.write(time_stamp + '\n')
-            f.write(git_hash)
+        save_path = f'{save_dir}/{exp_id}_generator.pt'
+        logging.info('Saving generator as:', save_path)
+        torch.save(gen, save_path)
+        
+        save_path = f'{save_dir}/{exp_id}_discriminator.pt'
+        logging.info('Saving discriminator as:', save_path)
+        torch.save(disc, save_path)
+        
+    
 
 
 
@@ -260,5 +278,4 @@ if __name__ == '__main__':
     
     args = vars(p.parse_args())
     args.pop('c')
-    print(args)
     train(**args)
