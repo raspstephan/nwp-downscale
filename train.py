@@ -23,15 +23,13 @@ def train(
     test_period=None,
     first_days=None,
     val_days=None,
-
     batch_norm = None, 
-    spectralnorm=None,  # TODO: implement the four points here 
+    spectralnorm=None,  
     use_noise=None, 
     cond_disc = None,
     D_loss = None,
     disc_repeats = None, 
     sigmoid=None,
-    
     batch_size=None,
     learning_rate=None,
     epochs=None,
@@ -43,7 +41,7 @@ def train(
     nf=None,
     relu_out=None,
     ):
-
+    
     # Allocate train and valid datasets
     ds_train = TiggeMRMSDataset(
         tigge_dir=tigge_dir,
@@ -122,7 +120,6 @@ def train(
         spectralnorm = spectralnorm ).to(device)
     
     
-    
     # Setup trainer
     criterion = nn.MSELoss()
     betas = (0.5, 0.999)
@@ -145,21 +142,21 @@ def train(
     if save_dir:
         save_path = f'{save_dir}/{exp_id}.pt'
         print('Saving model as:', save_path)
-        torch.save(model, save_path)
+        torch.save(trainer, save_path)
         
         save_path = f'{save_dir}/{exp_id}_train.nc'
         print('Saving prediction as:', save_path)
-        preds = create_valid_predictions(model, ds_train)
+        preds = create_valid_predictions(gen, ds_train)
         preds.to_netcdf(save_path)
 
         save_path = f'{save_dir}/{exp_id}_valid.nc'
         print('Saving prediction as:', save_path)
-        preds = create_valid_predictions(model, ds_valid)
+        preds = create_valid_predictions(gen, ds_valid)
         preds.to_netcdf(save_path)
 
         save_path = f'{save_dir}/{exp_id}_test.nc'
         print('Saving prediction as:', save_path)
-        preds = create_valid_predictions(model, ds_test)
+        preds = create_valid_predictions(gen, ds_test)
         preds.to_netcdf(save_path)
 
         time_stamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
@@ -221,9 +218,10 @@ if __name__ == '__main__':
     p.add_argument('--D_loss', type=str, default='hinge', 
         help='type of loss to be used in discriminator: { Wasserstein, hinge} '
     )
-    p.add_argument('--sigmoid', type=bool, default=False, 
-        help='If False, no sigmoid is applied at the end of the Disc. --> non-binary output. '
-    )
+    #p.add_argument('--sigmoid', dest='sigmoid', action='store_true')
+    p.add_argument('--no-sigmoid', dest='sigmoid', action='store_false')
+    p.set_defaults(sigmoid=True) # booleans don't seem to work. 
+    
     p.add_argument('--disc_repeats', type=int, default=5, 
         help='How often to repeat discriminator learning per 1x gen.} '
     )
@@ -233,9 +231,11 @@ if __name__ == '__main__':
     p.add_argument('--nf', type=int, default=64, 
         help='Number of filters in generator'
     )
-    p.add_argument('--relu_out', type=bool, default=False, 
+    p.add_argument('--no-relu_out', dest='sigmoid', action='store_false',
         help='Apply relu after final generator layer.'
     )
+    p.set_defaults(relu_out=True)
+                   
     p.add_argument('--batch_size', type=int, default=32, 
         help='Batch size'
     )
@@ -260,4 +260,5 @@ if __name__ == '__main__':
     
     args = vars(p.parse_args())
     args.pop('c')
+    print(args)
     train(**args)

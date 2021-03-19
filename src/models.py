@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 
 
 
+
 # options: 
 # G: spectralnorm, noise, relu-out
 # D: spectralnorm, batchnorm, sigmoid, conditional
@@ -113,7 +114,7 @@ class Generator(nn.Module):
 
 class Discriminator(nn.Module): 
     """ A first simple discriminator with binary output (sigmoid at final layer)"""
-    def __init__(self, nfs, batch_norm=True, in_size=128, sigmoid=True, conditional =True, spectralnorm = True):
+    def __init__(self, nfs, batch_norm=True, in_size=128, sigmoid=False, conditional =True, spectralnorm = True):
         """ General form of a Discriminator with different options to choose.
         
         batch_norm: If True, batch norm is applied in the Discriminator blocks. 
@@ -160,9 +161,6 @@ class Discriminator(nn.Module):
             
         )
 
-        
-        
-        
     def forward(self, x):
         if self.conditional: # concatenate low and high res images by simply upsampling of low-res image.
             lr, hr = x
@@ -172,5 +170,5 @@ class Discriminator(nn.Module):
         out = out.view(out.shape[0], -1)   # Flatten
         out = self.final_layers(out)
         if self.sigmoid:
-            out = torch.functional.sigmoid(out)
+            out = nn.functional.sigmoid(out)
         return out
