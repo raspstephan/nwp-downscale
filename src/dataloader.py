@@ -223,10 +223,10 @@ class TiggeMRMSDataset(Dataset):
         return self.__getitem__(0, time_idx, full_array=True)
 
 
-    def compute_weights(self, bins=np.append(np.arange(0, 0.1, 0.01), 10)):
+    def compute_weights(self, clip_min=0.1, clip_max=0.1):
         """
-        Compute sampling weights for each sample. Weights are computed so that 
-        each bin is samples with the same frequency.
+        Compute sampling weights for each sample. WEight is simply the mean precip
+        value of the target, clipped.
         This can then be used in torch.utils.data.WeightedRandomSampler, for example.
         """
         # Get the mean precipitation from MRMS for each sample
@@ -234,13 +234,14 @@ class TiggeMRMSDataset(Dataset):
         for idx in range(len(self.idxs)):
             X, y = self[idx]
             mean_precip.append(y.mean())
-        # Compute histogram
-        bin_weight = np.histogram(mean_precip, bins=bins)[0]
-        # Weight for each bin is simply the inverse frequency.
-        bin_weight = 1 / np.maximum(bin_weight, 1)
-        # Get weight for each sample
-        bin_idxs = np.digitize(mean_precip, bins) - 1
-        weights = bin_weight[bin_idxs]
+        weights = np.clip(mean_precip, 0.01, 0.1)
+#         # Compute histogram
+#         bin_weight = np.histogram(mean_precip, bins=bins)[0]
+#         # Weight for each bin is simply the inverse frequency.
+#         bin_weight = 1 / np.maximum(bin_weight, 1)
+#         # Get weight for each sample
+#         bin_idxs = np.digitize(mean_precip, bins) - 1
+#         weights = bin_weight[bin_idxs]
         return weights
 
     def get_settings(self): 
