@@ -259,3 +259,133 @@ class WGANTrainer():
         plt.plot(self.train_epochs, self.train_losses, label='Train')
         if plot_valid: plt.plot(self.valid_epochs, self.valid_losses, label='Valid')
         plt.legend()
+        
+        
+        
+        
+        
+class GANTrainer():
+    """Implements a Keras-style fit function and tracks train/valid losses"""
+    def __init__(self, gen, disc, gen_optimizer, disc_optimizer,  dl_train, dl_valid=None, 
+                 valid_every_epochs=1, disc_repeats=1, gp_lambda=None, l_loss=None, l_lambda=20, dloss_type = 'hinge'):
+        """ GAN trainer that includes options to set e.g. hinge loss, gradient penalty, ... 
+        """
+        self.gen = gen
+        self.disc = disc
+        self.gen_optimizer = gen_optimizer
+        self.disc_optimizer = disc_optimizer
+        self.dl_train = dl_train
+        self.dl_valid = dl_valid
+        self.valid_every_epochs = valid_every_epochs
+        self.dloss_type = dloss_type
+        self.criterion = nn.BCELoss()
+        if l_loss == 'l1':
+            self.l_loss = nn.L1Loss()
+        elif l_loss == 'l2':
+            self.l_loss = nn.MSELoss()
+        else:
+            self.l_loss = None
+        self.l_lambda = l_lambda
+        self.disc_repeats = disc_repeats
+        self.gp_lambda = gp_lambda
+        
+        self.epoch = 0
+        self.train_gen_losses = []
+        self.train_mse = []
+        self.train_disc_losses = []
+        self.train_epochs = []
+#         self.valid_losses = []
+#         self.valid_epochs = []
+        
+    def fit(self, epochs):
+
+        # Epoch loop
+        for epoch in range(1, epochs+1):
+
+            prog_bar = tqdm.tqdm(total=len(self.dl_train), desc=f'Epoch {epoch}')
+            train_loss, valid_loss = 0, 0
+
+            # Train
+            for i, (X, y) in enumerate(self.dl_train):
+                X = X.to(device); real = y.to(device)
+                bs = X.shape[0]
+                
+                mean_disc_loss = 0
+                for _ in range(self.disc_repeats):
+                    # Train discriminator
+                    self.disc_optimizer.zero_grad()
+
+                    fake = self.gen(X)
+                    preds_real = self.disc([X, real])
+                    preds_fake = self.disc([X, fake.detach()])
+                    
+                    # hinge_loss:
+                    if self.dloss_type == 'hinge':  
+                        disc_loss = (
+                            nn.functional.relu(1 - torch.mean(preds_real)) + 
+                            nn.functional.relu(1 + torch.mean(preds_fake))
+                        )
+                    elif self.dloss_type == 'Wasserstein': 
+                        disc_loss =  -torch.mean(preds_real) + torch.mean(preds_fake)
+
+                    if self.gp_lambda:
+                        epsilon = torch.rand(len(real), 1, 1, 1, device=device, requires_grad=True)
+                        gradient = get_gradient(disc, X, real, fake.detach(), epsilon)
+                        gp = gradient_penalty(gradient)
+                        disc_loss += self.gp_lambda * gp
+                    
+                    mean_disc_loss += disc_loss.item() / self.disc_repeats
+                    disc_loss.backward(retain_graph=True)
+                    self.disc_optimizer.step()
+                
+                
+                # Train generator
+                self.gen_optimizer.zero_grad()
+                
+                fake = self.gen(X)
+                preds_fake = self.disc([X, fake])
+                
+                mse = nn.MSELoss()(fake, real).item()   # For diagnostics only
+                
+                gen_loss = -torch.mean(preds_fake)
+                if self.l_loss:
+                    l_loss = self.l_loss(fake, real)
+                    gen_loss += self.l_lambda * l_loss
+                gen_loss.backward()
+                self.gen_optimizer.step()
+                
+
+                prog_bar.update()
+#                 train_gen_loss += (loss.item() - train_loss) / (i+1)
+                self.train_gen_losses.append(gen_loss.item())
+                self.train_mse.append(mse)
+                self.train_disc_losses.append(mean_disc_loss)
+                postfix = {
+                    'train_gen_loss': gen_loss.item(),
+                    'train_disc_loss': disc_loss.item(),
+                    'mse': mse,
+                }
+                if self.l_loss: postfix['l_loss'] = l_loss.item()
+                prog_bar.set_postfix(postfix)
+            self.train_epochs.append(self.epoch)
+
+#             if (self.epoch-1) % self.valid_every_epochs == 0:
+#                 # Valid
+#                 for i, (X, y) in enumerate(self.dl_valid):
+#                     X = X.to(device); y = y.to(device)
+#                     y_hat = self.model(X)
+#                     loss = self.criterion(y_hat, y)
+
+#                     valid_loss += (loss.cpu().detach().numpy() - valid_loss) / (i+1)
+#                 self.valid_losses.append(valid_loss)
+#                 self.valid_epochs.append(self.epoch)
+
+#                 prog_bar.set_postfix({'train_loss': train_loss, 'valid_loss': valid_loss}) 
+#                 prog_bar.close()
+        
+            self.epoch += 1
+        
+    def plot_losses(self, plot_valid=True):
+        plt.plot(self.train_epochs, self.train_losses, label='Train')
+        if plot_valid: plt.plot(self.valid_epochs, self.valid_losses, label='Valid')
+        plt.legend()

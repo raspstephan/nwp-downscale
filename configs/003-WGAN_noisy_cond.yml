@@ -1,0 +1,14 @@
+no-relu_out: True
+no-sigmoid: True
+spectralnorm: False
+cond_disc: False
+exp_id: 003-WGAN_noisy_cond
+tigge_dir: /datadrive_ssd/tigge/32km/
+tigge_vars: [total_precipitation]
+mrms_dir: /datadrive_ssd/mrms/4km/RadarOnly_QPE_06H/
+rq_fn: /datadrive_ssd/mrms/4km/RadarQuality.nc
+save_dir: /datadrive_ssd/saved_models
+epochs: 1
+nres: 3
+nf: 64
+D_loss: Wasserstein
