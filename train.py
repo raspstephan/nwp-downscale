@@ -176,11 +176,11 @@ def train(
 
         save_path = f'{save_dir}/{exp_id}_generator.pt'
         logging.info('Saving generator as:', save_path)
-        torch.save(gen, save_path)
+        torch.save(gen.state_dict(), save_path)
         
         save_path = f'{save_dir}/{exp_id}_discriminator.pt'
         logging.info('Saving discriminator as:', save_path)
-        torch.save(disc, save_path)
+        torch.save(disc.state_dict(), save_path)
         
     
 

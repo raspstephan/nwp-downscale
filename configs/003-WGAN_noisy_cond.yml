@@ -8,7 +8,7 @@ tigge_vars: [total_precipitation]
 mrms_dir: /datadrive_ssd/mrms/4km/RadarOnly_QPE_06H/
 rq_fn: /datadrive_ssd/mrms/4km/RadarQuality.nc
 save_dir: /datadrive_ssd/saved_models
-epochs: 5
+epochs: 1
 nres: 3
 nf: 64
 D_loss: Wasserstein
