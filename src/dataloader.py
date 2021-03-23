@@ -3,7 +3,7 @@ from torch.utils.data import Dataset
 import xarray as xr
 import numpy as np
 import pandas as pd
-from .utils import tqdm, device
+from .utils import tqdm, device, to_categorical
 
 
 def log_trans(x, eps):
@@ -29,7 +29,8 @@ class TiggeMRMSDataset(Dataset):
     """
     def __init__(self, tigge_dir, tigge_vars, mrms_dir, lead_time=12, patch_size=512, rq_fn=None, 
                  const_fn=None, const_vars=None, scale=True, data_period=None, first_days=None,
-                 val_days=None, split=None, mins=None, maxs=None, pad_tigge=0, tp_log=None):
+                 val_days=None, split=None, mins=None, maxs=None, pad_tigge=0, tp_log=None,
+                 cat_bins=None):
         """
         tigge_dir: Path to TIGGE data without variable name
         tigge_vars: List of TIGGE variables
@@ -54,6 +55,7 @@ class TiggeMRMSDataset(Dataset):
         self.first_days = first_days
         self.val_days = val_days
         self.split= split
+        self.cat_bins = cat_bins
         
         # Open datasets
         self.tigge = xr.merge([
@@ -75,7 +77,7 @@ class TiggeMRMSDataset(Dataset):
             self.tigge['tp'] = log_trans(self.tigge['tp'], tp_log)
             self.mrms = log_trans(self.mrms, tp_log)
         if scale:   # Apply min-max scaling
-            self._scale(mins, maxs)
+            self._scale(mins, maxs, scale_mrms=True if cat_bins is None else False)
         self.tigge = self.tigge.to_array()   # Doing this here saves time
          
         self.tigge_km = 32 # ds.tigge.lon.diff('lon').max()*100  # Currently hard-coded 
@@ -99,12 +101,13 @@ class TiggeMRMSDataset(Dataset):
                 self.const = (self.const - const_mins) / (const_maxs - const_mins)
             self.const = self.const[self.const_vars].to_array()
     
-    def _scale(self, mins, maxs):
+    def _scale(self, mins, maxs, scale_mrms=True):
         """Apply min-max scaling. Use same scaling for tp in TIGGE and MRMS."""
         self.mins = mins or self.tigge.min()   # Use min/max if provided, otherwise compute
         self.maxs = maxs or self.tigge.max()
         self.tigge = (self.tigge - self.mins) / (self.maxs - self.mins)
-        self.mrms = (self.mrms - self.mins.tp) / (self.maxs.tp - self.mins.tp)
+        if scale_mrms:
+            self.mrms = (self.mrms - self.mins.tp) / (self.maxs.tp - self.mins.tp)
         
     def _crop_times(self):
         """Crop TIGGE and MRMS arrays to where they overlap"""
@@ -206,6 +209,8 @@ class TiggeMRMSDataset(Dataset):
             lat=lat_slice,
             lon=lon_slice
         ).values[None]  # Add dimension for channel
+        if self.cat_bins is not None:
+            y = self._categorize(y)
         return X, y   # [vars, patch, patch]
     
     def _add_const(self, X, lat_slice, lon_slice):
@@ -217,6 +222,13 @@ class TiggeMRMSDataset(Dataset):
         ))
         return np.concatenate(Xs)
     
+    def _categorize(self, y):
+        """Converts continuous output to one-hot-encoded categories"""
+        y_shape = y.shape
+        y = pd.cut(y.reshape(-1), self.cat_bins, labels=False, include_lowest=True).reshape(y_shape)
+        y = to_categorical(y.squeeze(), num_classes=len(self.cat_bins))
+        y = np.rollaxis(y, 2)
+        return y
     
     def return_full_array(self, time_idx):
         """Shortcut to return a full scaled array for a single time index"""
