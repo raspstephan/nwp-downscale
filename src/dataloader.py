@@ -226,9 +226,9 @@ class TiggeMRMSDataset(Dataset):
         """Converts continuous output to one-hot-encoded categories"""
         y_shape = y.shape
         y = pd.cut(y.reshape(-1), self.cat_bins, labels=False, include_lowest=True).reshape(y_shape)
-        y = to_categorical(y.squeeze(), num_classes=len(self.cat_bins))
-        y = np.rollaxis(y, 2)
-        return y
+        # y = to_categorical(y.squeeze(), num_classes=len(self.cat_bins))
+        # y = np.rollaxis(y, 2)
+        return y.squeeze()
     
     def return_full_array(self, time_idx):
         """Shortcut to return a full scaled array for a single time index"""

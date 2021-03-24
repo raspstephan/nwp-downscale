@@ -47,7 +47,7 @@ class UpsampleBlock(nn.Module):
 class Generator(nn.Module):
     """Generator with noise vector and spectral normalization """
     def __init__(self, nres, nf_in, nf, relu_out=False, use_noise=True, spectral_norm=True):
-        """ General Generator with different optiosn to use. e.g noise, Spectral normalization (SN) """
+        """ General Generator with different options to use. e.g noise, Spectral normalization (SN) """
         super().__init__()
         self.relu_out = relu_out
         self.use_noise = use_noise
