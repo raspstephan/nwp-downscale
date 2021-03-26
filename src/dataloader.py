@@ -166,7 +166,7 @@ class TiggeMRMSDataset(Dataset):
             v += len(self.const.variable)
         return v
     
-    def __getitem__(self, idx, time_idx=None, full_array=False):
+    def __getitem__(self, idx, time_idx=None, full_array=False, no_cat=False):
         """Return individual sample. idx is the sample id, i.e. the index of self.idxs.
         X: TIGGE sample
         y: corresponding MRMS (radar) sample
@@ -209,7 +209,7 @@ class TiggeMRMSDataset(Dataset):
             lat=lat_slice,
             lon=lon_slice
         ).values[None]  # Add dimension for channel
-        if self.cat_bins is not None:
+        if self.cat_bins is not None and not no_cat:
             y = self._categorize(y)
         return X, y   # [vars, patch, patch]
     
@@ -244,7 +244,7 @@ class TiggeMRMSDataset(Dataset):
         # Get the mean precipitation from MRMS for each sample
         mean_precip = []
         for idx in range(len(self.idxs)):
-            X, y = self[idx]
+            X, y = self.__getitem__(idx, no_cat=True)
             mean_precip.append(y.mean())
         weights = np.clip(mean_precip, 0.01, 0.1)
 #         # Compute histogram

@@ -30,10 +30,15 @@ class ResidualBlock(nn.Module):
         return out + x
     
 class UpsampleBlock(nn.Module):
-    def __init__(self, nf, spectral_norm=False):
+    def __init__(self, nf, spectral_norm=False, method='PixelShuffle'):
         super().__init__()
-        self.conv = nn.Conv2d(nf, nf * 4, kernel_size=3, stride=1, padding=1)
-        self.upsample = nn.PixelShuffle(2)
+        self.conv = nn.Conv2d(nf, nf * 4 if method=='PixelShuffle' else nf, kernel_size=3, stride=1, padding=1)
+        if method == 'PixelShuffle':
+            self.upsample = nn.PixelShuffle(2)
+        elif method == 'bilinear':
+            self.upsample = nn.Upsample(scale_factor=2, mode='bilinear')
+        else:
+            raise NotImplementedError
         self.activation = nn.LeakyReLU(0.2)
         if spectral_norm: 
             self.conv = nn.utils.spectral_norm(self.conv)
@@ -46,10 +51,12 @@ class UpsampleBlock(nn.Module):
 
 class Generator(nn.Module):
     """Generator with noise vector and spectral normalization """
-    def __init__(self, nres, nf_in, nf, relu_out=False, use_noise=True, spectral_norm=True):
+    def __init__(self, nres, nf_in, nf, relu_out=False, use_noise=True, spectral_norm=True,
+                 nout=1, softmax_out=False, upsample_method='PixelShuffle'):
         """ General Generator with different options to use. e.g noise, Spectral normalization (SN) """
         super().__init__()
         self.relu_out = relu_out
+        self.softmax_out = softmax_out
         self.use_noise = use_noise
         self.spectral_norm = spectral_norm
 
@@ -66,9 +73,9 @@ class Generator(nn.Module):
         ])
         # Resblocks with upscaling
         self.upblocks = nn.Sequential(*[
-            UpsampleBlock(nf, spectral_norm=spectral_norm) for i in range(3)
+            UpsampleBlock(nf, spectral_norm=spectral_norm, method=upsample_method) for i in range(3)
         ])
-        self.conv_out = nn.Conv2d(nf, 1, kernel_size=9, stride=1, padding=4)
+        self.conv_out = nn.Conv2d(nf, nout, kernel_size=9, stride=1, padding=4)
         
         if spectral_norm: 
             self.conv_in = nn.utils.spectral_norm(self.conv_in)
@@ -88,6 +95,8 @@ class Generator(nn.Module):
         out = self.conv_out(out)
         if self.relu_out:
             out = nn.functional.relu(out)
+        if self.softmax_out:
+            out = nn.functional.softmax(out, dim=1)
         return out
 
 
