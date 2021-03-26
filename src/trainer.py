@@ -53,7 +53,7 @@ class Trainer():
             self.train_losses.append(train_loss)
             self.train_epochs.append(self.epoch)
 
-            if (self.epoch-1) % self.valid_every_epochs == 0:
+            if (self.epoch-1) % self.valid_every_epochs == 0 and self.dl_valid:
                 # Valid
                 for i, (X, y) in enumerate(self.dl_valid):
                     X = X.to(device); y = y.to(device)
