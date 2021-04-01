@@ -199,7 +199,7 @@ class GANTrainer():
 #         self.valid_losses = []
 #         self.valid_epochs = []
 
-    def _disc_loss(preds_real, preds_fake):
+    def _disc_loss(self, preds_real, preds_fake):
         """Returns adversarial loss for discriminator"""
         if self.adv_loss_type == 'hinge':  
             disc_loss = (
@@ -216,7 +216,7 @@ class GANTrainer():
             disc_loss = disc_loss_real + disc_loss_fake
         return disc_loss
     
-    def _gen_loss(preds_fake):
+    def _gen_loss(self, preds_fake):
         """Returns adversarial loss for generator"""
         if self.adv_loss_type == 'mse':
             ground_truth = torch.ones_like(preds_fake)
