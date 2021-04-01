@@ -4,6 +4,7 @@ import xarray as xr
 import numpy as np
 import pandas as pd
 from .utils import tqdm, device, to_categorical
+from skimage.measure import block_reduce
 
 
 def log_trans(x, eps):
@@ -30,7 +31,7 @@ class TiggeMRMSDataset(Dataset):
     def __init__(self, tigge_dir, tigge_vars, mrms_dir, lead_time=12, patch_size=512, rq_fn=None, 
                  const_fn=None, const_vars=None, scale=True, data_period=None, first_days=None,
                  val_days=None, split=None, mins=None, maxs=None, pad_tigge=0, tp_log=None,
-                 cat_bins=None):
+                 cat_bins=None, pure_sr_ratio=None):
         """
         tigge_dir: Path to TIGGE data without variable name
         tigge_vars: List of TIGGE variables
@@ -56,6 +57,7 @@ class TiggeMRMSDataset(Dataset):
         self.val_days = val_days
         self.split= split
         self.cat_bins = cat_bins
+        self.pure_sr_ratio = pure_sr_ratio
         
         # Open datasets
         self.tigge = xr.merge([
@@ -209,6 +211,8 @@ class TiggeMRMSDataset(Dataset):
             lat=lat_slice,
             lon=lon_slice
         ).values[None]  # Add dimension for channel
+        if self.pure_sr_ratio:
+            X = self._make_sr_X(y)
         if self.cat_bins is not None and not no_cat:
             y = self._categorize(y)
         return X, y   # [vars, patch, patch]
@@ -222,6 +226,11 @@ class TiggeMRMSDataset(Dataset):
         ))
         return np.concatenate(Xs)
     
+    def _make_sr_X(self, y):
+        X = block_reduce(y, (1, self.pure_sr_ratio, self.pure_sr_ratio), np.mean)
+        return X
+
+
     def _categorize(self, y):
         """Converts continuous output to one-hot-encoded categories"""
         y_shape = y.shape

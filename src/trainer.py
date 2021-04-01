@@ -161,7 +161,7 @@ class GANTrainer():
     """Implements a Keras-style fit function and tracks train/valid losses"""
     def __init__(self, gen, disc, gen_optimizer, disc_optimizer,  dl_train, dl_valid=None, 
                  valid_every_epochs=1, disc_repeats=1, gen_repeats=1,
-                 gp_lambda=None, l_loss=None, l_lambda=20, dloss_type='hinge',
+                 gp_lambda=None, l_loss=None, l_lambda=20, adv_loss_type='hinge',
                  save_dir=None, plot=False, plotting_sample=None):
         """ GAN trainer that includes options to set e.g. hinge loss, gradient penalty, ... 
         """
@@ -172,7 +172,7 @@ class GANTrainer():
         self.dl_train = dl_train
         self.dl_valid = dl_valid
         self.valid_every_epochs = valid_every_epochs
-        self.dloss_type = dloss_type
+        self.adv_loss_type = adv_loss_type
         self.criterion = nn.BCELoss()
         if l_loss == 'l1':
             self.l_loss = nn.L1Loss()
@@ -193,9 +193,38 @@ class GANTrainer():
         self.train_mse = []
         self.train_disc_losses = []
         self.train_epochs = []
+        self.disc_preds_real = []
+        self.disc_preds_fake = []
+        self.gen_preds_fake = []
 #         self.valid_losses = []
 #         self.valid_epochs = []
-        
+
+    def _disc_loss(preds_real, preds_fake):
+        """Returns adversarial loss for discriminator"""
+        if self.adv_loss_type == 'hinge':  
+            disc_loss = (
+                nn.functional.relu(1 - torch.mean(preds_real)) + 
+                nn.functional.relu(1 + torch.mean(preds_fake))
+            )
+        elif self.adv_loss_type == 'Wasserstein': 
+            disc_loss =  -torch.mean(preds_real) + torch.mean(preds_fake)
+        elif self.adv_loss_type == 'mse':
+            ground_truth_real = torch.ones_like(preds_real)
+            ground_truth_fake = torch.zeros_like(preds_fake)
+            disc_loss_real = nn.functional.mse_loss(preds_real, ground_truth_real)
+            disc_loss_fake = nn.functional.mse_loss(preds_fake, ground_truth_fake)
+            disc_loss = disc_loss_real + disc_loss_fake
+        return disc_loss
+    
+    def _gen_loss(preds_fake):
+        """Returns adversarial loss for generator"""
+        if self.adv_loss_type == 'mse':
+            ground_truth = torch.ones_like(preds_fake)
+            gen_loss = nn.functional.mse_loss(preds_fake, ground_truth)
+        else:  # Wasserstein or Hinge
+            gen_loss = -torch.mean(preds_fake)
+        return gen_loss
+
     def fit(self, epochs):
 
         # Epoch loop
@@ -217,16 +246,11 @@ class GANTrainer():
                     fake = self.gen(X)
                     preds_real = self.disc([X, real])
                     preds_fake = self.disc([X, fake.detach()])
+                    self.disc_preds_real.append(preds_real.detach().cpu().numpy())
+                    self.disc_preds_fake.append(preds_fake.detach().cpu().numpy())
                     
-                    # hinge_loss:
-                    if self.dloss_type == 'hinge':  
-                        disc_loss = (
-                            nn.functional.relu(1 - torch.mean(preds_real)) + 
-                            nn.functional.relu(1 + torch.mean(preds_fake))
-                        )
-                    elif self.dloss_type == 'Wasserstein': 
-                        disc_loss =  -torch.mean(preds_real) + torch.mean(preds_fake)
-
+                    disc_loss = self._disc_loss(preds_real, preds_fake)
+                    
                     if self.gp_lambda:
                         epsilon = torch.rand(len(real), 1, 1, 1, device=device, requires_grad=True)
                         gradient = get_gradient(disc, X, real, fake.detach(), epsilon)
@@ -247,10 +271,11 @@ class GANTrainer():
 
                     fake = self.gen(X)
                     preds_fake = self.disc([X, fake])
+                    self.gen_preds_fake.append(preds_fake.detach().cpu().numpy())
 
                     mse = nn.MSELoss()(fake, real).item()   # For diagnostics only
 
-                    gen_loss = -torch.mean(preds_fake)
+                    gen_loss = self._gen_loss(preds_fake)
                     if self.l_loss:
                         l_loss = self.l_loss(fake, real)
                         gen_loss += self.l_lambda * l_loss
