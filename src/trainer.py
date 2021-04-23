@@ -190,6 +190,7 @@ class GANTrainer():
         
         self.epoch = 0
         self.train_gen_losses = []
+        self.train_l_losses = []
         self.train_mse = []
         self.train_disc_losses = []
         self.train_epochs = []
@@ -253,7 +254,7 @@ class GANTrainer():
                     
                     if self.gp_lambda:
                         epsilon = torch.rand(len(real), 1, 1, 1, device=device, requires_grad=True)
-                        gradient = get_gradient(disc, X, real, fake.detach(), epsilon)
+                        gradient = get_gradient(self.disc, X, real, fake.detach(), epsilon)
                         gp = gradient_penalty(gradient)
                         disc_loss += self.gp_lambda * gp
                     
@@ -289,6 +290,7 @@ class GANTrainer():
                 prog_bar.update()
 #                 train_gen_loss += (loss.item() - train_loss) / (i+1)
                 self.train_gen_losses.append(mean_gen_loss)
+                self.train_l_losses.append(mean_l_loss)
                 self.train_mse.append(mse)
                 self.train_disc_losses.append(mean_disc_loss)
                 postfix = {
