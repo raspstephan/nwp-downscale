@@ -122,3 +122,67 @@ class Discriminator(nn.Module):
         if self.sigmoid:
             out = nn.functional.sigmoid(out)
         return out
+
+class Discriminator2(nn.Module): 
+    """ A first simple discriminator with binary output (sigmoid at final layer)"""
+    def __init__(self, nf, nres, batch_norm=False, sigmoid=False, 
+    spectral_norm=True):
+        """ General form of a Discriminator with different options to choose.
+        
+        batch_norm: If True, batch norm is applied in the Discriminator blocks. 
+        sigmoid: whether to apply the sigmoid at the end. Set to False, e.g. for WGAN to get non-binary output.
+        conditional: If True, conditional Disc. takes also low-res image as input in addition to high res image
+        spectral_norm: If True, spectral normalization is applied.         
+        """
+        # Initialize object: 
+        super().__init__()
+        self.batch_norm = batch_norm
+        assert self.batch_norm is False, 'Batch norm not implemented at the moment'
+        self.sigmoid = sigmoid
+            
+        # Down layers (Hard coded channels and number of layers)
+        self.downblocksHR = []
+        self.resblocksLR = []
+        nf_in = 1; nf_out = nf//2**(3-1)
+        for i in range(3):
+            self.downblocksHR.append(
+                ResidualBlock(nf_in, nf_out, stride=2, spectral_norm=spectral_norm)
+            )
+            self.resblocksLR.append(
+                ResidualBlock(nf_in, nf_out, spectral_norm=spectral_norm)
+            )
+            nf_in = nf_out; nf_out *= 2
+        self.downblocksHR = nn.Sequential(*self.downblocksHR)
+        self.resblocksLR = nn.Sequential(*self.resblocksLR)        
+
+        # Resblocks
+        self.resblocks = nn.Sequential(
+            ResidualBlock(nf*2, nf, spectral_norm),
+            *[
+                ResidualBlock(nf, nf, spectral_norm) for _ in range(nres-1)
+        ])
+
+        # Dense layers
+
+        linear1 = nn.Linear(nf, nf//2)
+        linear2 = nn.Linear(nf//2, 1)
+        if spectral_norm:
+            linear1 = torch.nn.utils.spectral_norm(linear1)
+            linear2 = torch.nn.utils.spectral_norm(linear2)
+        self.final_layers = nn.Sequential(
+            linear1,
+            nn.LeakyReLU(0.2),
+            linear2,
+        )
+
+    def forward(self, x):
+        lr, hr = x
+        hr = self.downblocksHR(hr)
+        lr = self.resblocksLR(lr)
+        out = torch.cat([hr, lr], dim=1)
+        out = self.resblocks(out)
+        out = out.mean([2, 3])  # Global average pooling
+        out = self.final_layers(out)
+        if self.sigmoid:
+            out = nn.functional.sigmoid(out)
+        return out
