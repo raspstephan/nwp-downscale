@@ -49,7 +49,7 @@ class TiggeMRMSDataset(Dataset):
         mins: Dataset of mins for TIGGE vars. Computed if not given.
         maxs: Same for maxs
         pad_tigge: Padding to add to TIGGE patches on each side.
-        tp_log: whether to scale the total precipitation logarithmically
+        tp_log: whether to scale the total precipitation logarithmically. 
         """
         self.lead_time = lead_time
         self.patch_size = patch_size
@@ -58,6 +58,7 @@ class TiggeMRMSDataset(Dataset):
         self.split= split
         self.cat_bins = cat_bins
         self.pure_sr_ratio = pure_sr_ratio
+        self.tp_log = tp_log
         
         # Open datasets
         self.tigge = xr.merge([
@@ -245,25 +246,38 @@ class TiggeMRMSDataset(Dataset):
         return self.__getitem__(0, time_idx, full_array=True)
 
 
-    def compute_weights(self, clip_min=0.1, clip_max=0.1):
+    def compute_weights(self, min_weight=0.02, max_weight=0.4, threshold=0.025, exp=4):
         """
         Compute sampling weights for each sample. WEight is simply the mean precip
         value of the target, clipped.
         This can then be used in torch.utils.data.WeightedRandomSampler, for example.
         """
         # Get the mean precipitation from MRMS for each sample
-        mean_precip = []
+        # mean_precip = []
+        # for idx in range(len(self.idxs)):
+        #     X, y = self.__getitem__(idx, no_cat=True)
+        #     mean_precip.append(y.mean())
+        # weights = np.clip(mean_precip, 0.01, 0.1)
+
+        if self.tp_log: threshold = log_trans(threshold, self.tp_log)
+
+        coverage = []
         for idx in range(len(self.idxs)):
             X, y = self.__getitem__(idx, no_cat=True)
-            mean_precip.append(y.mean())
-        weights = np.clip(mean_precip, 0.01, 0.1)
-#         # Compute histogram
-#         bin_weight = np.histogram(mean_precip, bins=bins)[0]
-#         # Weight for each bin is simply the inverse frequency.
-#         bin_weight = 1 / np.maximum(bin_weight, 1)
-#         # Get weight for each sample
-#         bin_idxs = np.digitize(mean_precip, bins) - 1
-#         weights = bin_weight[bin_idxs]
+            y = y > threshold
+            coverage.append(y.mean())
+        scale = max_weight - min_weight
+        x = 1-(np.array(coverage)-1)**exp
+        weights = min_weight + x * scale
+
+
+        # # Compute histogram
+        # bin_weight = np.histogram(coverage, bins=bins)[0]
+        # # Weight for each bin is simply the inverse frequency.
+        # bin_weight = 1 / np.maximum(bin_weight, 1)
+        # # Get weight for each sample
+        # bin_idxs = np.digitize(coverage, bins) - 1
+        # weights = bin_weight[bin_idxs]
         return weights
 
     def get_settings(self): 
