@@ -78,7 +78,8 @@ class TiggeMRMSDataset(Dataset):
         self.tigge.load(); self.mrms.load()   # Load datasets into RAM
         if tp_log:
             self.tigge['tp'] = log_trans(self.tigge['tp'], tp_log)
-            self.mrms = log_trans(self.mrms, tp_log)
+            if not cat_bins is None:   # No log transform for categorical output
+                self.mrms = log_trans(self.mrms, tp_log)
         if scale:   # Apply min-max scaling
             self._scale(mins, maxs, scale_mrms=True if cat_bins is None else False)
         self.tigge = self.tigge.to_array()   # Doing this here saves time

@@ -15,7 +15,8 @@ import matplotlib.pyplot as plt
 class Generator(nn.Module):
     """Generator with noise vector and spectral normalization """
     def __init__(self, nres, nf_in, nf, activation_out=None, use_noise=True, spectral_norm=True,
-                 nout=1, softmax_out=False, upsample_method='bilinear'):
+                 nout=1, upsample_method='bilinear', halve_filters_up=True, 
+                 batch_norm=False):
         """ General Generator with different options to use. e.g noise, Spectral normalization (SN) """
         super().__init__()
         self.activation_out = activation_out
@@ -30,17 +31,25 @@ class Generator(nn.Module):
 
         # Resblocks keeping shape
         self.resblocks = nn.Sequential(*[
-            ResidualBlock(nf, nf, spectral_norm=spectral_norm) for _ in range(nres)
+            ResidualBlock(nf, nf, spectral_norm=spectral_norm, batch_norm=batch_norm) for _ in range(nres)
         ])
 
-        # Resblocks with upscaling (hardcoded for factor 8 and halving nf)
+        # Resblocks with upscaling (hardcoded for factor 8)
         self.upblocks = nn.Sequential(*[
-            UpsampleBlock(nf//2**i, nf//2**(i+1), spectral_norm=spectral_norm, method=upsample_method) for i in range(3)
+            UpsampleBlock(
+                nf//2**i if halve_filters_up else nf, 
+                nf//2**(i+1)if halve_filters_up else nf, 
+                spectral_norm=spectral_norm, 
+                method=upsample_method,
+                batch_norm=batch_norm
+                ) 
+                for i in range(3)
         ])
 
         # Final convolubtion
         self.conv_out = make_conv2d(
-            nf//2**3, nout, kernel_size=3, padding=1, spectral_norm=spectral_norm, padding_mode='reflect'
+            nf//2**3 if halve_filters_up else nf, nout, kernel_size=3, padding=1, 
+            spectral_norm=spectral_norm, padding_mode='reflect'
             )
 
         
