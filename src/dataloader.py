@@ -78,7 +78,7 @@ class TiggeMRMSDataset(Dataset):
         self.tigge.load(); self.mrms.load()   # Load datasets into RAM
         if tp_log:
             self.tigge['tp'] = log_trans(self.tigge['tp'], tp_log)
-            if not cat_bins is None:   # No log transform for categorical output
+            if cat_bins is None:   # No log transform for categorical output
                 self.mrms = log_trans(self.mrms, tp_log)
         if scale:   # Apply min-max scaling
             self._scale(mins, maxs, scale_mrms=True if cat_bins is None else False)
@@ -240,14 +240,15 @@ class TiggeMRMSDataset(Dataset):
         y = pd.cut(y.reshape(-1), self.cat_bins, labels=False, include_lowest=True).reshape(y_shape)
         # y = to_categorical(y.squeeze(), num_classes=len(self.cat_bins))
         # y = np.rollaxis(y, 2)
-        return y.squeeze()
+        return y.squeeze().astype('int')
     
     def return_full_array(self, time_idx):
         """Shortcut to return a full scaled array for a single time index"""
         return self.__getitem__(0, time_idx, full_array=True)
 
 
-    def compute_weights(self, min_weight=0.02, max_weight=0.4, threshold=0.025, exp=4):
+    def compute_weights(self, min_weight=0.02, max_weight=0.4, threshold=0.025, exp=4, 
+                        compute_on_X=False):
         """
         Compute sampling weights for each sample. WEight is simply the mean precip
         value of the target, clipped.
@@ -265,6 +266,7 @@ class TiggeMRMSDataset(Dataset):
         coverage = []
         for idx in range(len(self.idxs)):
             X, y = self.__getitem__(idx, no_cat=True)
+            if compute_on_X: y = X
             y = y > threshold
             coverage.append(y.mean())
         scale = max_weight - min_weight
