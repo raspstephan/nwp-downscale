@@ -31,7 +31,7 @@ class TiggeMRMSDataset(Dataset):
     def __init__(self, tigge_dir, tigge_vars, mrms_dir, lead_time=12, patch_size=512, rq_fn=None, 
                  const_fn=None, const_vars=None, scale=True, data_period=None, first_days=None,
                  val_days=None, split=None, mins=None, maxs=None, pad_tigge=0, tp_log=None,
-                 cat_bins=None, pure_sr_ratio=None):
+                 cat_bins=None, pure_sr_ratio=None, dropna=True):
         """
         tigge_dir: Path to TIGGE data without variable name
         tigge_vars: List of TIGGE variables
@@ -73,6 +73,10 @@ class TiggeMRMSDataset(Dataset):
         if data_period:   # NOTE: This will not speed up the open_mfdataset step
             self.tigge = self.tigge.sel(init_time=slice(*data_period))
             self.mrms = self.mrms.sel(time=slice(*data_period))
+#         import pdb; pdb.set_trace()
+        if dropna:
+            self.tigge.load()
+            self.tigge = self.tigge.dropna('init_time')
         self._crop_times()   # Only take times that overlap and (potentially) do train/val split
         print('Loading data')
         self.tigge.load(); self.mrms.load()   # Load datasets into RAM
@@ -109,7 +113,8 @@ class TiggeMRMSDataset(Dataset):
         """Apply min-max scaling. Use same scaling for tp in TIGGE and MRMS."""
         self.mins = mins or self.tigge.min()   # Use min/max if provided, otherwise compute
         self.maxs = maxs or self.tigge.max()
-        self.maxs['tp'] = self.mrms.max()   # Make sure to take MRMS max for tp
+        if self.cat_bins is None:
+            self.maxs['tp'] = self.mrms.max()   # Make sure to take MRMS max for tp
         self.tigge = (self.tigge - self.mins) / (self.maxs - self.mins)
         if scale_mrms:
             self.mrms = (self.mrms - self.mins.tp) / (self.maxs.tp - self.mins.tp)
