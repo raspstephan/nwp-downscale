@@ -195,3 +195,9 @@ class Discriminator2(nn.Module):
         if self.sigmoid:
             out = nn.functional.sigmoid(out)
         return out
+
+
+# class gen1(nn.Module):
+#     def __init__(self, block):
+#         super(gen1, self).__init__()
+#         self.conv1 = nn.Conv
