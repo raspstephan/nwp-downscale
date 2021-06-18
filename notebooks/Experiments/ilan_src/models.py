@@ -1,3 +1,6 @@
+import torch
+from torch import nn
+
 class Discriminator(nn.Module):
     def __init__(self, channels_img, features_d, num_classes, img_size):
         super(Discriminator, self).__init__()
@@ -32,7 +35,7 @@ class Discriminator(nn.Module):
             nn.LeakyReLU(0.2),
         )
 
-    def forward(self, x, labels):
+    def forward(self, labels, x):
         embedding = self.embed(labels).view(labels.shape[0], 1, self.img_size, self.img_size)
         x = torch.cat([x, embedding], dim=1)
         return self.disc(x)
@@ -70,7 +73,7 @@ class Generator(nn.Module):
             nn.ReLU(),
         )
 
-    def forward(self, x, labels):
+    def forward(self, labels, x):
         embedding  = self.embed(labels).unsqueeze(2).unsqueeze(3)
         x = torch.cat([x, embedding], dim = 1)
         x = self.net(x)
