@@ -229,7 +229,7 @@ class TiggeMRMSDataset(Dataset):
             X = self._make_sr_X(y)
         if self.cat_bins is not None and not no_cat:
             y = self._categorize(y)
-        return X, y   # [vars, patch, patch]
+        return X.astype('float32'), y.astype('float32')   # [vars, patch, patch]
     
     def _add_const(self, X, lat_slice, lon_slice):
         """Add constants to X"""
