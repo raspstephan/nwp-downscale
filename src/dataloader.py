@@ -212,8 +212,14 @@ class TiggeMRMSDataset(Dataset):
             lat_slice = slice(0, len(self.tigge.lat) * self.ratio)
             lon_slice = slice(0, len(self.tigge.lon) * self.ratio)
         else:
-            lat_slice = slice(lat_idx * self.patch_mrms + self.pad_mrms, (lat_idx+1) * self.patch_mrms)
-            lon_slice = slice(lon_idx * self.patch_mrms + self.pad_mrms, (lon_idx+1) * self.patch_mrms)
+            lat_slice = slice(
+                lat_idx * self.patch_mrms + self.pad_mrms, 
+                (lat_idx+1) * self.patch_mrms + self.pad_mrms
+            )
+            lon_slice = slice(
+                lon_idx * self.patch_mrms + self.pad_mrms, 
+                (lon_idx+1) * self.patch_mrms + self.pad_mrms
+            )
         y = self.mrms.isel(
             time=time_idx,
             lat=lat_slice,
