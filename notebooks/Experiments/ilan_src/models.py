@@ -219,6 +219,127 @@ class DSGenerator(nn.Module):
                 nn.init.normal_(m.weight.data, 0.0, 0.02)
                 
                 
+
+class DSDiscriminatorSmoothed(nn.Module):
+    def __init__(self, channels_img, features_d, num_classes, img_size):
+        super(DSDiscriminatorSmoothed, self).__init__()
+        
+        self.img_size = img_size
+        self.embed = nn.Sequential(
+                        # Input: N x channels_noise x 16 x 16
+                        self._expand_block(channels_img, features_d * 16, kernel_size = 3, stride=1, padding=1, scale_factor=1),  # img: 16x16
+                        self._expand_block(features_d * 16, features_d * 8, kernel_size = 3, stride=1, padding=1, scale_factor=2),  # img: 32x32
+                        self._expand_block(features_d * 8, features_d * 4, kernel_size = 3, stride=1, padding=1, scale_factor=2),  # img: 64x64
+                        nn.UpsamplingBilinear2d(scale_factor=2), 
+                        nn.Conv2d(
+                            features_d * 4, channels_img, kernel_size=3, stride=1, padding=1
+                        ),
+                        # Output: N x channels_img x 128 x 128
+                        nn.Sigmoid(),
+                    )
+        self.disc = nn.Sequential(
+            # input: N x channels_img x 128 x 128
+            nn.Conv2d(
+                channels_img*2, features_d, kernel_size=4, stride=2, padding=1
+            ),
+            nn.LeakyReLU(0.2),
+            self._block(features_d, features_d * 2, 4, 2, 1),
+            self._block(features_d * 2, features_d * 4, 4, 2, 1),
+            self._block(features_d * 4, features_d * 6, 4, 2, 1),
+            self._block(features_d * 6, features_d * 8, 4, 2, 1),
+            # After all _block img output is 4x4 (Conv2d below makes into 1x1)
+            nn.Conv2d(features_d * 8, 1, kernel_size=4, stride=2, padding=0),
+        )
+        self.initialize_weights()
+
+    def _block(self, in_channels, out_channels, kernel_size, stride, padding):
+        return nn.Sequential(
+            nn.Conv2d(
+                in_channels,
+                out_channels,
+                kernel_size,
+                stride,
+                padding,
+                bias=False,
+            ),
+            nn.InstanceNorm2d(out_channels, affine=True),
+            nn.LeakyReLU(0.2),
+        )
+    
+    def _expand_block(self, in_channels, out_channels, kernel_size, stride, padding, scale_factor):
+        return nn.Sequential(
+            nn.UpsamplingBilinear2d(scale_factor=scale_factor),
+            nn.Conv2d(
+                in_channels,
+                out_channels,
+                kernel_size,
+                stride,
+                padding,
+                bias=False,
+            ),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(),
+        )
+
+    def forward(self, labels, x):
+        embedding = self.embed(labels)
+#         print(embedding.shape)
+#         embedding = embedding.view(labels.shape[0], 1, self.img_size, self.img_size)
+        x = torch.cat([x, embedding], dim=1)
+        return self.disc(x)
+    
+    def initialize_weights(self):
+        # Initializes weights according to the DCGAN paper
+        for m in self.modules():
+            if isinstance(m, (nn.Conv2d, nn.ConvTranspose2d, nn.BatchNorm2d)):
+                nn.init.normal_(m.weight.data, 0.0, 0.02)
+
+class DSGeneratorSmoothed(nn.Module):
+    def __init__(self, noise_shape, channels_img, features_g, num_classes, img_size, embed_size):
+        super(DSGeneratorSmoothed, self).__init__()
+        self.img_size = img_size
+        self.embed = nn.Conv2d(in_channels=1, out_channels=embed_size, kernel_size=3, padding=1)
+        self.net = nn.Sequential(
+            # Input: N x channels_noise x 16 x 16
+            self._block(noise_shape[0] + embed_size, features_g * 16, kernel_size=3, stride=1, padding=1, scale_factor=1),  # img: 16x16
+            self._block(features_g * 16, features_g * 8, kernel_size=3, stride=1, padding=1, scale_factor=2),  # img: 32x32
+            self._block(features_g * 8, features_g * 4, kernel_size=3, stride=1, padding=1, scale_factor=2),  # img: 64x64
+            nn.UpsamplingBilinear2d(scale_factor=2), 
+            nn.Conv2d(
+                features_g * 4, channels_img, kernel_size=3, stride=1, padding=1
+            ),
+            # Output: N x channels_img x 128 x 128
+            nn.Sigmoid(),
+        )
+        self.initialize_weights()
+
+    def _block(self, in_channels, out_channels, kernel_size, stride, padding, scale_factor):
+        return nn.Sequential(
+            nn.UpsamplingBilinear2d(scale_factor=scale_factor), 
+            nn.Conv2d(
+                in_channels,
+                out_channels,
+                kernel_size,
+                stride,
+                padding,
+                bias=False,
+            ),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(),
+        )
+
+    def forward(self, labels, x):
+        embedding  = self.embed(labels)
+        x = torch.cat([x, embedding], dim = 1)
+        x = self.net(x)
+#         print(x.shape)
+        return x
+
+    def initialize_weights(self):
+        # Initializes weights according to the DCGAN paper
+        for m in self.modules():
+            if isinstance(m, (nn.Conv2d, nn.ConvTranspose2d, nn.BatchNorm2d)):
+                nn.init.normal_(m.weight.data, 0.0, 0.02)
                 
 ###################################################################
 ###################################################################
@@ -544,6 +665,7 @@ class WGANGP(LightningModule):
         self.num_classes = num_classes
         self.real_idx = real_idx
         self.cond_idx = cond_idx
+        self.save_hyperparameters()
         
     def forward(self, condition, noise):
         return self.gen(condition, noise)
@@ -736,6 +858,7 @@ class LeinGANGP(LightningModule):
         self.cond_idx = cond_idx
         if disc_spectral_norm:
             self.disc.apply(self.add_sn)
+        self.save_hyperparameters()
         
     def add_sn(self, m):
         if isinstance(m, (nn.Conv2d, nn.Linear, nn.ConvTranspose2d)):
