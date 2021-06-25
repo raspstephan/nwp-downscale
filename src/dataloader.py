@@ -31,7 +31,7 @@ class TiggeMRMSDataset(Dataset):
     def __init__(self, tigge_dir, tigge_vars, mrms_dir, lead_time=12, patch_size=512, rq_fn=None, 
                  const_fn=None, const_vars=None, scale=True, data_period=None, first_days=None,
                  val_days=None, split=None, mins=None, maxs=None, pad_tigge=0, tp_log=None,
-                 cat_bins=None, pure_sr_ratio=None, dropna=True):
+                 cat_bins=None, pure_sr_ratio=None, dropna=True, ensemble_mode=None):
         """
         tigge_dir: Path to TIGGE data without variable name
         tigge_vars: List of TIGGE variables
@@ -59,6 +59,7 @@ class TiggeMRMSDataset(Dataset):
         self.cat_bins = cat_bins
         self.pure_sr_ratio = pure_sr_ratio
         self.tp_log = tp_log
+        self.ensemble_mode = ensemble_mode
         
         # Open datasets
         self.tigge = xr.merge([
@@ -203,17 +204,31 @@ class TiggeMRMSDataset(Dataset):
             valid_time=time_idx,
             lat=lat_slice,
             lon=lon_slice
-        ).values
+        )
+        if self.ensemble_mode == 'stack':
+            X = X.rename({'variable': 'raw_variable'}).stack(variable = ['raw_variable', 'member']).transpose(
+                'variable', 'lat', 'lon')
+        if self.ensemble_mode == 'random':
+            member_idx = np.random.choice(self.tigge.member)
+            X = X.sel(member=member_idx)
+        X = X.values
         if hasattr(self, 'const'):  # Add constants
             X = self._add_const(X, lat_slice, lon_slice)
+        
 
         # Get targets
         if full_array:   # Return corresponding MRMS slice; not used currently
             lat_slice = slice(0, len(self.tigge.lat) * self.ratio)
             lon_slice = slice(0, len(self.tigge.lon) * self.ratio)
         else:
-            lat_slice = slice(lat_idx * self.patch_mrms + self.pad_mrms, (lat_idx+1) * self.patch_mrms)
-            lon_slice = slice(lon_idx * self.patch_mrms + self.pad_mrms, (lon_idx+1) * self.patch_mrms)
+            lat_slice = slice(
+                lat_idx * self.patch_mrms + self.pad_mrms, 
+                (lat_idx+1) * self.patch_mrms + self.pad_mrms
+            )
+            lon_slice = slice(
+                lon_idx * self.patch_mrms + self.pad_mrms, 
+                (lon_idx+1) * self.patch_mrms + self.pad_mrms
+            )
         y = self.mrms.isel(
             time=time_idx,
             lat=lat_slice,
