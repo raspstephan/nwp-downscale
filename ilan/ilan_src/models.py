@@ -856,15 +856,15 @@ class LeinGANGP(LightningModule):
         self.disc = discriminator()
         self.real_idx = real_idx
         self.cond_idx = cond_idx
-        if disc_spectral_norm:
+        if disc_spectral_norm:   # TODO: Fix! currently does not work
             self.disc.apply(self.add_sn)
         self.save_hyperparameters()
         
     def add_sn(self, m):
         if isinstance(m, (nn.Conv2d, nn.Linear, nn.ConvTranspose2d)):
-            return nn.utils.parametrizations.spectral_norm(m)
+            nn.utils.parametrizations.spectral_norm(m)
         else:
-            return m
+            m
         
     def forward(self, condition, noise):
         return self.gen(condition, noise)
