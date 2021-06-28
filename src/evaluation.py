@@ -7,6 +7,148 @@ from sklearn.metrics import f1_score
 import matplotlib.pyplot as plt
 from datetime import date
 import subprocess
+import torch
+from src.dataloader import log_retrans
+import tqdm.notebook as tqdm
+
+"""
+Eval Functions
+"""
+
+def gen_patch_eval(gen, dl_test, nens, ds_min, ds_max, tp_log, device):
+    """
+    gen: generator, which takes (forecast, noise) as arguments
+    dl_test: dataloader
+    ds_min and ds_max: the min and max values for unscaling
+    tp_log: for undoing the log scaling
+    """
+    crps = []
+    rmse = []
+    for batch_idx, (x,y) in enumerate(dl_test):
+        x = x.to(device)
+        preds = []
+        for i in range(nens):
+            noise = torch.randn(x.shape[0], 1, x.shape[2], x.shape[3]).to(device)
+            pred = gen(x, noise).detach().to('cpu').numpy().squeeze()
+            preds.append(pred)
+        preds = np.array(preds)
+        truth = y.numpy().squeeze(1)
+        truth = xr.DataArray(
+                truth,
+                dims=['sample','lat', 'lon'],
+                name='tp'
+            )
+        preds = xr.DataArray(
+                preds,
+                dims=['member', 'sample', 'lat', 'lon'],
+                name='tp'
+            )
+
+        truth = truth * (ds_max - ds_min) + ds_min
+
+        preds = preds * (ds_max - ds_min) + ds_min
+    
+        if tp_log:
+            truth = log_retrans(truth, tp_log)
+            preds = log_retrans(preds, tp_log)
+        for sample in range(x.shape[0]):
+
+            sample_crps = xs.crps_ensemble(truth.sel(sample=sample), preds.sel(sample=sample)).values
+            sample_rmse = xs.rmse(preds.sel(sample=sample).mean('member'), truth.sel(sample=sample), dim=['lat', 'lon']).values
+            crps.append(sample_crps)
+            rmse.append(sample_rmse)
+    
+    
+    return np.mean(crps), np.mean(rmse)
+
+def single_full_test_prediction(gen, ds_test, device):
+    # Get predictions for full field
+    
+    preds = []
+    for t in tqdm.tqdm(range(len(ds_test.tigge.valid_time))):
+        x, y = ds_test.return_full_array(t)
+        x = torch.FloatTensor(x).unsqueeze(0).to(device)
+        noise = torch.randn(x.shape[0], 1, x.shape[2], x.shape[3]).to(device)
+        pred = gen(x, noise).to('cpu').detach().numpy().squeeze()
+        preds.append(pred)
+    preds = np.array(preds)
+    
+    # Unscale
+    preds = preds * (ds_test.maxs.tp.values - ds_test.mins.tp.values) + ds_test.mins.tp.values
+    
+    # Un-log
+    if ds_test.tp_log:
+        preds = log_retrans(preds, ds_test.tp_log)
+    
+    # Convert to xarray
+    preds = xr.DataArray(
+        preds,
+        dims=['valid_time', 'lat', 'lon'],
+        coords={
+            'valid_time': ds_test.tigge.valid_time,
+            'lat': ds_test.mrms.lat.isel(
+                lat=slice(ds_test.pad_mrms, ds_test.pad_mrms+preds.shape[1])
+            ),
+            'lon': ds_test.mrms.lon.isel(
+                lon=slice(ds_test.pad_mrms, ds_test.pad_mrms+preds.shape[2])
+            )
+        },
+        name='tp'
+    )
+    return preds
+    
+    
+def ensemble_full_test_predictions(gen, ds_test, nens, device):
+    """Wrapper to create ensemble"""
+    preds = [single_full_test_prediction(gen, ds_test, device) for _ in range(nens)]
+    return xr.concat(preds, 'member')   
+
+def make_eval_mask():
+    # mask ground truth data
+    rq = xr.open_dataarray('/datadrive_ssd/mrms/4km/RadarQuality.nc')
+    eval_mask = rq>-1
+    fn = "/datadrive_ssd/mrms/4km/RadarOnly_QPE_06H/RadarOnly_QPE_06H_00.00_20180101-000000.nc"
+    ds = xr.open_dataset(fn)
+    assert eval_mask.lat.shape ==ds.lat.shape
+    eval_mask['lat'] = ds.lat 
+    assert eval_mask.lon.shape ==ds.lon.shape
+    eval_mask['lon'] = ds.lon
+    return eval_mask
+
+def get_full_masked_mrms(gen, ds_test, device):
+    #get pred to align lat and lon
+    preds = single_full_test_prediction(gen, ds_test,  device);
+
+    eval_mask = make_eval_mask()
+    
+    mrms = ds_test.mrms.sel(lat=preds.lat.values, 
+                            lon=preds.lon.values).rename(
+                            {'time': 'valid_time'}) * ds_test.maxs.tp.values
+    if ds_test.tp_log:
+        mrms = log_retrans(mrms, ds_test.tp_log)
+    
+    mrms = mrms.where(eval_mask)
+    
+    return mrms
+
+def gen_full_eval(gen, ds_test, mrms, nens, device):
+    preds = ensemble_full_test_predictions(gen, ds_test, nens, device)  
+#     print(preds)
+    crps = xs.crps_ensemble(mrms, preds).values
+    rmse = xs.rmse(preds.mean('member'), mrms, dim=['lat', 'lon', 'valid_time'], skipna=True).values
+    
+    return preds, crps, rmse
+
+
+def interpolation_full_baseline(ds_test, mrms):
+    tigge = ds_test.tigge.isel(variable=0) * ds_test.maxs.tp.values
+    tigge = log_retrans(tigge, ds_test.tp_log)
+    #interpolate
+    interp = tigge.interp_like(mrms, method='linear')   
+    #calculate error
+    rmse = xs.rmse(interp, mrms, dim=['lat', 'lon', 'valid_time'], skipna=True).values
+    
+    return tigge, interp, rmse
 
 """ Evaluation functions and classes (??) 
 # Let's ignore ensemble dimension for a start. 
