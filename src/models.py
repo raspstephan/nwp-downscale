@@ -10,6 +10,13 @@ import torch
 import torch.nn as nn
 from .utils import tqdm, device
 from .layers import *
+from .dataloader import log_retrans
+
+import xarray as xr
+import xskillscore as xs
+from dask.diagnostics import ProgressBar
+from sklearn.metrics import f1_score
+
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -1358,7 +1365,8 @@ class LeinGANGP(LightningModule):
 class BaseGAN(LightningModule):
     def __init__(self, generator, discriminator, noise_shape, input_channels = 1,
                       b1 = 0.0, b2 = 0.9, disc_lr = 1e-4, gen_lr=1e-4, lambda_gp = 10, cond_idx = 0, real_idx = 1, 
-                      gen_freq = 1, disc_freq=5, disc_spectral_norm = False, gen_spectral_norm = False, loss_type = "wasserstein"): # fill in
+                      gen_freq = 1, disc_freq=5, disc_spectral_norm = False, gen_spectral_norm = False, loss_type = "wasserstein", 
+                        val_hparams = {'val_nens':10, 'tp_log': 0.01, 'ds_max': 50, 'ds_min': 0}): # fill in
         super().__init__()
         self.disc_lr, self.gen_lr, self.b1, self.b2 = disc_lr, gen_lr,  b1, b2
         self.disc_freq, self.gen_freq = disc_freq, gen_freq
@@ -1370,6 +1378,9 @@ class BaseGAN(LightningModule):
         self.cond_idx = cond_idx
         self.loss_type = loss_type
         self.input_channels = input_channels
+        self.val_hparams = val_hparams
+        self.upsample_input = nn.Upsample(scale_factor=8)
+        
         if disc_spectral_norm:  
             self.disc.apply(self.add_sn)
         if gen_spectral_norm:   
@@ -1432,9 +1443,13 @@ class BaseGAN(LightningModule):
 #                 print(sample_imgs.shape)
                 grid = torchvision.utils.make_grid(sample_imgs)
                 self.logger.experiment.add_image('generated_images', grid, self.global_step)
-                grid = torchvision.utils.make_grid(condition)
+                if self.input_channels>1:
+                    input_forcasts = self.upsample_input(condition)
+                    print(input_forcasts.view(-1, input_forcasts.shape[2], input_forcasts.shape[3]).unsqueeze(1).shape)
+                    grid = torchvision.utils.make_grid(input_forcasts.view(-1, input_forcasts.shape[2], input_forcasts.shape[3]).unsqueeze(1))
+                else:
+                    grid = torchvision.utils.make_grid(condition)
                 self.logger.experiment.add_image('input_images', grid, self.global_step)
-                
         
 #         # train discriminator
         if optimizer_idx == 0:
@@ -1468,8 +1483,48 @@ class BaseGAN(LightningModule):
         return [{"optimizer": disc_opt, "frequency": self.disc_freq}, {"optimizer": gen_opt, "frequency": self.gen_freq}]
 #         return gen_opt, disc_opt
 
+    def validation_step(self, batch, batch_idx):
+        
+        x, y = batch[self.cond_idx], batch[self.real_idx]
+        
+        preds = []
+        for i in range(self.val_hparams['val_nens']):
+            noise = torch.randn(x.shape[0], 1, x.shape[2], x.shape[3], device=self.device)
+            pred = self.gen(x, noise).detach().to('cpu').numpy().squeeze()
+            preds.append(pred)
+        preds = np.array(preds)
+        truth = y.detach().to('cpu').numpy().squeeze(1)
+        truth = xr.DataArray(
+                truth,
+                dims=['sample','lat', 'lon'],
+                name='tp'
+            )
+        preds = xr.DataArray(
+                preds,
+                dims=['member', 'sample', 'lat', 'lon'],
+                name='tp'
+            )
 
+        truth = truth * (self.val_hparams['ds_max'] - self.val_hparams['ds_min']) + self.val_hparams['ds_min']
 
-
-
+        preds = preds * (self.val_hparams['ds_max'] - self.val_hparams['ds_min']) + self.val_hparams['ds_min']
+    
+        if self.val_hparams['tp_log']:
+            truth = log_retrans(truth, self.val_hparams['tp_log'])
+            preds = log_retrans(preds, self.val_hparams['tp_log'])
+            
+        crps = []    
+        rmse = []
+        for sample in range(x.shape[0]):
+            sample_crps = xs.crps_ensemble(truth.sel(sample=sample), preds.sel(sample=sample)).values
+            sample_rmse = xs.rmse(preds.sel(sample=sample).mean('member'), truth.sel(sample=sample), dim=['lat', 'lon']).values
+            crps.append(sample_crps)
+            rmse.append(sample_rmse)
+            
+        crps = torch.tensor(np.mean(crps))
+        rmse = torch.tensor(np.mean(rmse))
+        self.log('val_crps', crps, on_epoch=True, on_step=False, prog_bar=True, logger=True)
+        self.log('val_rmse', rmse, on_epoch=True, on_step=False, prog_bar=True, logger=True)
+        
+        return crps
 
