@@ -693,9 +693,9 @@ class UpSample(nn.Module):
     
     
 class LeinGen(nn.Module):
-    def __init__(self):
+    def __init__(self, input_channels=1):
         super(LeinGen, self).__init__()
-        self.embed = nn.Conv2d(1,255, kernel_size=3, padding=1)
+        self.embed = nn.Conv2d(input_channels,255, kernel_size=3, padding=1)
         self.process = nn.Sequential(LeinResBlock(in_planes=256, planes=256, stride=1,  nonlin = 'relu'), 
                                       LeinResBlock(in_planes=256, planes=256, stride=1, nonlin = 'relu'), 
                             #         self.b3 = BasicBlock(in_planes=256, planes=256, stride=1, nonlin = 'relu')
@@ -729,15 +729,17 @@ class LeinGen(nn.Module):
             
                                      
 class LeinDisc(nn.Module):
-    def __init__(self, nonlin = 'leaky_relu'):
+    def __init__(self, input_channels=1, nonlin = 'leaky_relu'):
         super(LeinDisc, self).__init__()
         hr_block = []
         lr_block = []
-        inplanes = 1
+        lr_inplanes = input_channels
+        hr_inplanes = 1
         for planes in [64, 128, 256]:
-            hr_block.append(LeinResBlock(in_planes = inplanes, planes=planes, stride=2, nonlin = nonlin))
-            lr_block.append(LeinResBlock(in_planes = inplanes, planes=planes, stride=1, nonlin = nonlin))
-            inplanes=planes
+            hr_block.append(LeinResBlock(in_planes = hr_inplanes, planes=planes, stride=2, nonlin = nonlin))
+            lr_block.append(LeinResBlock(in_planes = lr_inplanes, planes=planes, stride=1, nonlin = nonlin))
+            lr_inplanes=planes
+            hr_inplanes=planes
         self.hr_block1 = nn.Sequential(*hr_block)
         self.lr_block1 = nn.Sequential(*lr_block)
         self.hr_block2 = nn.Sequential(LeinResBlock(in_planes=256, planes=256, stride=1, nonlin = nonlin))#, block(in_planes=256, planes=256, stride=1, nonlin = nonlin))
@@ -903,9 +905,9 @@ class SelfAttention(nn.Module):
         
 
 class BroadLeinSAGen(nn.Module):
-    def __init__(self):
+    def __init__(self, input_channels=1):
         super(BroadLeinSAGen, self).__init__()
-        self.embed = nn.Conv2d(1,255, kernel_size=3, padding=1)
+        self.embed = nn.Conv2d(input_channels,255, kernel_size=3, padding=1)
         self.process = nn.Sequential(LeinResBlock(in_planes=256, planes=256, stride=2,  nonlin = 'relu'), 
                                      LeinResBlock(in_planes=256, planes=256, stride=2, nonlin = 'relu'), 
 #                                      LeinResBlock(in_planes=256, planes=256, stride=2, nonlin = 'relu')
@@ -941,14 +943,14 @@ class BroadLeinSAGen(nn.Module):
             
                                      
 class BroadLeinSADisc(nn.Module):
-    def __init__(self, nonlin = 'leaky_relu'):
+    def __init__(self, input_channels = 1, nonlin = 'leaky_relu'):
         super(BroadLeinSADisc, self).__init__()
         self.hr_block1 = nn.Sequential(LeinResBlock(in_planes = 1, planes=64, stride=2, nonlin = nonlin), 
                                        LeinResBlock(in_planes = 64, planes=128, stride=2, nonlin = nonlin),
                                        SelfAttention(128),
                                        LeinResBlock(in_planes = 128, planes=256, stride=2, nonlin = nonlin))
         
-        self.lr_block1 = nn.Sequential(LeinResBlock(in_planes = 1, planes=64, stride=2, nonlin = nonlin), 
+        self.lr_block1 = nn.Sequential(LeinResBlock(in_planes = input_channels, planes=64, stride=2, nonlin = nonlin), 
                                        LeinResBlock(in_planes = 64, planes=128, stride=2, nonlin = nonlin),
                                        SelfAttention(128),
                                        LeinResBlock(in_planes = 128, planes=256, stride=1, nonlin = nonlin))
@@ -985,9 +987,9 @@ class BroadLeinSADisc(nn.Module):
     
 
 class LeinSAGen(nn.Module):
-    def __init__(self):
+    def __init__(self, input_channels = 1):
         super(LeinSAGen, self).__init__()
-        self.embed = nn.Conv2d(1,255, kernel_size=3, padding=1)
+        self.embed = nn.Conv2d(input_channels,255, kernel_size=3, padding=1)
         self.process = nn.Sequential(LeinResBlock(in_planes=256, planes=256, stride=1,  nonlin = 'relu'), 
                                      LeinResBlock(in_planes=256, planes=256, stride=1, nonlin = 'relu'), 
 #                                      LeinResBlock(in_planes=256, planes=256, stride=2, nonlin = 'relu')
@@ -1023,14 +1025,14 @@ class LeinSAGen(nn.Module):
             
                                      
 class LeinSADisc(nn.Module):
-    def __init__(self, nonlin = 'leaky_relu'):
+    def __init__(self, input_channels = 1, nonlin = 'leaky_relu'):
         super(LeinSADisc, self).__init__()
         self.hr_block1 = nn.Sequential(LeinResBlock(in_planes = 1, planes=64, stride=2, nonlin = nonlin), 
                                        LeinResBlock(in_planes = 64, planes=128, stride=2, nonlin = nonlin),
                                        SelfAttention(128),
                                        LeinResBlock(in_planes = 128, planes=256, stride=2, nonlin = nonlin))
         
-        self.lr_block1 = nn.Sequential(LeinResBlock(in_planes = 1, planes=64, stride=1, nonlin = nonlin), 
+        self.lr_block1 = nn.Sequential(LeinResBlock(in_planes = input_channels, planes=64, stride=1, nonlin = nonlin), 
                                        LeinResBlock(in_planes = 64, planes=128, stride=1, nonlin = nonlin),
                                        SelfAttention(128),
                                        LeinResBlock(in_planes = 128, planes=256, stride=1, nonlin = nonlin))
@@ -1269,8 +1271,8 @@ class LeinGANGP(LightningModule):
         self.disc_freq, self.gen_freq = 5, 1
         self.noise_shape = noise_shape
         self.lambda_gp = lambda_gp
-        self.gen = generator()
-        self.disc = discriminator()
+        self.gen = generator(channels_img)
+        self.disc = discriminator(channels_img)
         self.real_idx = real_idx
         self.cond_idx = cond_idx
         if disc_spectral_norm:   # TODO: Fix! currently does not work
@@ -1354,7 +1356,7 @@ class LeinGANGP(LightningModule):
 
 
 class BaseGAN(LightningModule):
-    def __init__(self, generator, discriminator, noise_shape, 
+    def __init__(self, generator, discriminator, noise_shape, input_channels = 1,
                       b1 = 0.0, b2 = 0.9, disc_lr = 1e-4, gen_lr=1e-4, lambda_gp = 10, cond_idx = 0, real_idx = 1, 
                       gen_freq = 1, disc_freq=5, disc_spectral_norm = False, gen_spectral_norm = False, loss_type = "wasserstein"): # fill in
         super().__init__()
@@ -1362,11 +1364,12 @@ class BaseGAN(LightningModule):
         self.disc_freq, self.gen_freq = disc_freq, gen_freq
         self.noise_shape = noise_shape
         self.lambda_gp = lambda_gp
-        self.gen = generator()
-        self.disc = discriminator()
+        self.gen = generator(input_channels=input_channels)
+        self.disc = discriminator(input_channels=input_channels)
         self.real_idx = real_idx
         self.cond_idx = cond_idx
         self.loss_type = loss_type
+        self.input_channels = input_channels
         if disc_spectral_norm:  
             self.disc.apply(self.add_sn)
         if gen_spectral_norm:   
