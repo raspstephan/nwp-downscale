@@ -10,6 +10,13 @@ import torch
 import torch.nn as nn
 from .utils import tqdm, device
 from .layers import *
+from .dataloader import log_retrans
+
+import xarray as xr
+import xskillscore as xs
+from dask.diagnostics import ProgressBar
+from sklearn.metrics import f1_score
+
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -693,9 +700,9 @@ class UpSample(nn.Module):
     
     
 class LeinGen(nn.Module):
-    def __init__(self):
+    def __init__(self, input_channels=1):
         super(LeinGen, self).__init__()
-        self.embed = nn.Conv2d(1,255, kernel_size=3, padding=1)
+        self.embed = nn.Conv2d(input_channels,255, kernel_size=3, padding=1)
         self.process = nn.Sequential(LeinResBlock(in_planes=256, planes=256, stride=1,  nonlin = 'relu'), 
                                       LeinResBlock(in_planes=256, planes=256, stride=1, nonlin = 'relu'), 
                             #         self.b3 = BasicBlock(in_planes=256, planes=256, stride=1, nonlin = 'relu')
@@ -729,15 +736,17 @@ class LeinGen(nn.Module):
             
                                      
 class LeinDisc(nn.Module):
-    def __init__(self, nonlin = 'leaky_relu'):
+    def __init__(self, input_channels=1, nonlin = 'leaky_relu'):
         super(LeinDisc, self).__init__()
         hr_block = []
         lr_block = []
-        inplanes = 1
+        lr_inplanes = input_channels
+        hr_inplanes = 1
         for planes in [64, 128, 256]:
-            hr_block.append(LeinResBlock(in_planes = inplanes, planes=planes, stride=2, nonlin = nonlin))
-            lr_block.append(LeinResBlock(in_planes = inplanes, planes=planes, stride=1, nonlin = nonlin))
-            inplanes=planes
+            hr_block.append(LeinResBlock(in_planes = hr_inplanes, planes=planes, stride=2, nonlin = nonlin))
+            lr_block.append(LeinResBlock(in_planes = lr_inplanes, planes=planes, stride=1, nonlin = nonlin))
+            lr_inplanes=planes
+            hr_inplanes=planes
         self.hr_block1 = nn.Sequential(*hr_block)
         self.lr_block1 = nn.Sequential(*lr_block)
         self.hr_block2 = nn.Sequential(LeinResBlock(in_planes=256, planes=256, stride=1, nonlin = nonlin))#, block(in_planes=256, planes=256, stride=1, nonlin = nonlin))
@@ -852,7 +861,295 @@ class LeinDisc2(nn.Module):
 #                 nn.init.normal_(m.weight.data, 0.0, 0.02)
                 nn.init.kaiming_normal_(m.weight.data)
             
+        
+        
+class SelfAttention(nn.Module):
+    def __init__(self, in_channels):
+        
+        super(SelfAttention, self).__init__()
+        self.f = nn.Conv2d(in_channels=in_channels, out_channels=in_channels//8, 
+                           kernel_size=1, stride=1, padding=0)
+        self.g = nn.Conv2d(in_channels=in_channels, out_channels=in_channels//8, 
+                           kernel_size=1, stride=1, padding=0)        
+        self.h = nn.Conv2d(in_channels=in_channels, out_channels=in_channels, 
+                           kernel_size=1, stride=1, padding=0)
+        
+        gamma = torch.tensor(0.0)
+        self.gamma = nn.Parameter(gamma, requires_grad=True)
+        
+        self.flatten = nn.Flatten()
+        
     
+    def collapse_height_width(self, x):
+        x_shape = x.shape
+        return torch.reshape(x, (x_shape[0], -1, x.shape[1]))
+    
+    
+    def forward(self, x):
+        f = self.f(x)
+        g = self.g(x)
+        h = self.h(x)
+        
+        f_flat = self.collapse_height_width(f)
+        g_flat = self.collapse_height_width(g)
+        h_flat = self.collapse_height_width(h)
+
+#         print(g_flat.shape)
+#         print(f_flat.shape)
+        s = g_flat @ torch.transpose(f_flat, 1, 2)
+
+#         print(s.shape)
+        b = F.softmax(s, dim = -1)
+        
+        o = b @ h_flat
+        
+#         print(o.shape)
+#         print(x.shape)
+        y = self.gamma * torch.reshape(o, x.shape) + x
+        
+        return y
+        
+        
+class BroadLeinSAGen(nn.Module):
+    def __init__(self, input_channels=1):
+        super(BroadLeinSAGen, self).__init__()
+        self.embed = nn.Conv2d(input_channels,255, kernel_size=3, padding=1)
+        self.process = nn.Sequential(LeinResBlock(in_planes=256, planes=256, stride=2,  nonlin = 'relu'), 
+                                     LeinResBlock(in_planes=256, planes=256, stride=2, nonlin = 'relu'), 
+#                                      LeinResBlock(in_planes=256, planes=256, stride=2, nonlin = 'relu')
+                            #         self.b4 = BasicBlock(in_planes=256, planes=256, stride=1, nonlin = 'leaky_relu')
+                                        )
+        self.upscale = nn.Sequential(LeinResBlock(in_planes=256, planes=256, stride=1,  nonlin = 'leaky_relu'),
+                                     UpSample(2, 'bilinear'),
+                                     SelfAttention(256),
+                                     LeinResBlock(in_planes=256, planes=128, stride=1,  nonlin = 'leaky_relu'),
+                                     UpSample(2, 'bilinear'),
+                                     LeinResBlock(in_planes=128, planes=64, stride=1,  nonlin = 'leaky_relu'),
+                                     UpSample(2, 'bilinear'),
+                                     LeinResBlock(in_planes=64, planes=32, stride=1,  nonlin = 'leaky_relu'))
+        
+        self.final = nn.Conv2d(32,1, kernel_size=3, padding=1)
+         
+    def forward(self, x, noise):
+        x = F.relu(self.embed(x))
+        x = torch.cat((x,noise), axis=1)
+        x = self.process(x)
+#         print(x.shape)
+        x = self.upscale(x)
+        x = torch.sigmoid(self.final(x))
+#         print(x.shape)
+        return x
+    
+    def initialize_weights(self):
+        # Initializes weights according to the DCGAN paper
+        for m in self.modules():
+            if isinstance(m, (nn.Conv2d, nn.ConvTranspose2d)):#, nn.BatchNorm2d)):
+#                 nn.init.normal_(m.weight.data, 0.0, 0.02)
+                nn.init.kaiming_normal_(m.weight.data)
+            
+                                     
+class BroadLeinDisc(nn.Module):
+    def __init__(self, input_channels = 1, nonlin = 'leaky_relu'):
+        super(BroadLeinDisc, self).__init__()
+        self.hr_block1 = nn.Sequential(LeinResBlock(in_planes = 1, planes=64, stride=2, nonlin = nonlin), 
+                                       LeinResBlock(in_planes = 64, planes=128, stride=2, nonlin = nonlin),
+                                       LeinResBlock(in_planes = 128, planes=256, stride=2, nonlin = nonlin))
+        
+        self.lr_block1 = nn.Sequential(LeinResBlock(in_planes = input_channels, planes=64, stride=2, nonlin = nonlin), 
+                                       LeinResBlock(in_planes = 64, planes=128, stride=2, nonlin = nonlin),
+                                       LeinResBlock(in_planes = 128, planes=256, stride=1, nonlin = nonlin))
+        
+        self.hr_block2 = nn.Sequential(LeinResBlock(in_planes=256, planes=256, stride=1, nonlin = nonlin))#, block(in_planes=256, planes=256, stride=1, nonlin = nonlin))
+        self.lr_block2 = nn.Sequential(LeinResBlock(in_planes=512, planes=256, stride=1, nonlin = nonlin))#,block(in_planes=256, planes=256, stride=1, nonlin = nonlin))
+        self.dense1 = nn.Linear(512, 256)
+        self.dense2 = nn.Linear(256, 1)
+        nn.init.kaiming_normal_(self.dense1.weight, nonlinearity='leaky_relu')
+        nn.init.kaiming_normal_(self.dense2.weight, nonlinearity = 'linear')
+        self.initialize_weights()
+        
+        
+
+    def forward(self, X, y):
+        hr = self.hr_block1(y)
+        lr = self.lr_block1(X)
+        lr = torch.cat((lr,hr), axis=1)
+        hr = self.hr_block2(hr)
+        lr = self.lr_block2(lr)
+        hr = nn.AvgPool2d(16)(hr)
+        lr = nn.AvgPool2d(16)(lr)
+        out = torch.cat((torch.squeeze(hr), torch.squeeze(lr)), axis=1)
+        out = F.leaky_relu(self.dense1(out), negative_slope=0.02)
+        out = self.dense2(out)
+        return out
+    
+    def initialize_weights(self):
+        # Initializes weights according to the DCGAN paper
+        for m in self.modules():
+            if isinstance(m, (nn.Conv2d, nn.Linear)):#, nn.BatchNorm2d)):
+#                 nn.init.normal_(m.weight.data, 0.0, 0.02)
+                nn.init.kaiming_normal_(m.weight.data)
+        
+class BroadLeinGen(nn.Module):
+    def __init__(self, input_channels=1):
+        super(BroadLeinGen, self).__init__()
+        self.embed = nn.Conv2d(input_channels,255, kernel_size=3, padding=1)
+        self.process = nn.Sequential(LeinResBlock(in_planes=256, planes=256, stride=2,  nonlin = 'relu'), 
+                                     LeinResBlock(in_planes=256, planes=256, stride=2, nonlin = 'relu'), 
+#                                      LeinResBlock(in_planes=256, planes=256, stride=2, nonlin = 'relu')
+                            #         self.b4 = BasicBlock(in_planes=256, planes=256, stride=1, nonlin = 'leaky_relu')
+                                        )
+        self.upscale = nn.Sequential(LeinResBlock(in_planes=256, planes=256, stride=1,  nonlin = 'leaky_relu'),
+                                     UpSample(2, 'bilinear'),
+                                     LeinResBlock(in_planes=256, planes=128, stride=1,  nonlin = 'leaky_relu'),
+                                     UpSample(2, 'bilinear'),
+                                     LeinResBlock(in_planes=128, planes=64, stride=1,  nonlin = 'leaky_relu'),
+                                     UpSample(2, 'bilinear'),
+                                     LeinResBlock(in_planes=64, planes=32, stride=1,  nonlin = 'leaky_relu'))
+        
+        self.final = nn.Conv2d(32,1, kernel_size=3, padding=1)
+         
+    def forward(self, x, noise):
+        x = F.relu(self.embed(x))
+        x = torch.cat((x,noise), axis=1)
+        x = self.process(x)
+#         print(x.shape)
+        x = self.upscale(x)
+        x = torch.sigmoid(self.final(x))
+#         print(x.shape)
+        return x
+    
+    def initialize_weights(self):
+        # Initializes weights according to the DCGAN paper
+        for m in self.modules():
+            if isinstance(m, (nn.Conv2d, nn.ConvTranspose2d)):#, nn.BatchNorm2d)):
+#                 nn.init.normal_(m.weight.data, 0.0, 0.02)
+                nn.init.kaiming_normal_(m.weight.data)
+            
+                                     
+class BroadLeinSADisc(nn.Module):
+    def __init__(self, input_channels = 1, nonlin = 'leaky_relu'):
+        super(BroadLeinSADisc, self).__init__()
+        self.hr_block1 = nn.Sequential(LeinResBlock(in_planes = 1, planes=64, stride=2, nonlin = nonlin), 
+                                       LeinResBlock(in_planes = 64, planes=128, stride=2, nonlin = nonlin),
+                                       SelfAttention(128),
+                                       LeinResBlock(in_planes = 128, planes=256, stride=2, nonlin = nonlin))
+        
+        self.lr_block1 = nn.Sequential(LeinResBlock(in_planes = input_channels, planes=64, stride=2, nonlin = nonlin), 
+                                       LeinResBlock(in_planes = 64, planes=128, stride=2, nonlin = nonlin),
+                                       SelfAttention(128),
+                                       LeinResBlock(in_planes = 128, planes=256, stride=1, nonlin = nonlin))
+        
+        self.hr_block2 = nn.Sequential(LeinResBlock(in_planes=256, planes=256, stride=1, nonlin = nonlin))#, block(in_planes=256, planes=256, stride=1, nonlin = nonlin))
+        self.lr_block2 = nn.Sequential(LeinResBlock(in_planes=512, planes=256, stride=1, nonlin = nonlin))#,block(in_planes=256, planes=256, stride=1, nonlin = nonlin))
+        self.dense1 = nn.Linear(512, 256)
+        self.dense2 = nn.Linear(256, 1)
+        nn.init.kaiming_normal_(self.dense1.weight, nonlinearity='leaky_relu')
+        nn.init.kaiming_normal_(self.dense2.weight, nonlinearity = 'linear')
+        self.initialize_weights()
+        
+        
+
+    def forward(self, X, y):
+        hr = self.hr_block1(y)
+        lr = self.lr_block1(X)
+        lr = torch.cat((lr,hr), axis=1)
+        hr = self.hr_block2(hr)
+        lr = self.lr_block2(lr)
+        hr = nn.AvgPool2d(16)(hr)
+        lr = nn.AvgPool2d(16)(lr)
+        out = torch.cat((torch.squeeze(hr), torch.squeeze(lr)), axis=1)
+        out = F.leaky_relu(self.dense1(out), negative_slope=0.02)
+        out = self.dense2(out)
+        return out
+    
+    def initialize_weights(self):
+        # Initializes weights according to the DCGAN paper
+        for m in self.modules():
+            if isinstance(m, (nn.Conv2d, nn.Linear)):#, nn.BatchNorm2d)):
+#                 nn.init.normal_(m.weight.data, 0.0, 0.02)
+                nn.init.kaiming_normal_(m.weight.data)
+    
+
+class LeinSAGen(nn.Module):
+    def __init__(self, input_channels = 1):
+        super(LeinSAGen, self).__init__()
+        self.embed = nn.Conv2d(input_channels,255, kernel_size=3, padding=1)
+        self.process = nn.Sequential(LeinResBlock(in_planes=256, planes=256, stride=1,  nonlin = 'relu'), 
+                                     LeinResBlock(in_planes=256, planes=256, stride=1, nonlin = 'relu'), 
+#                                      LeinResBlock(in_planes=256, planes=256, stride=2, nonlin = 'relu')
+                            #         self.b4 = BasicBlock(in_planes=256, planes=256, stride=1, nonlin = 'leaky_relu')
+                                        )
+        self.upscale = nn.Sequential(LeinResBlock(in_planes=256, planes=256, stride=1,  nonlin = 'leaky_relu'),
+                                     UpSample(2, 'bilinear'),
+                                     SelfAttention(256),
+                                     LeinResBlock(in_planes=256, planes=128, stride=1,  nonlin = 'leaky_relu'),
+                                     UpSample(2, 'bilinear'),
+                                     LeinResBlock(in_planes=128, planes=64, stride=1,  nonlin = 'leaky_relu'),
+                                     UpSample(2, 'bilinear'),
+                                     LeinResBlock(in_planes=64, planes=32, stride=1,  nonlin = 'leaky_relu'))
+        
+        self.final = nn.Conv2d(32,1, kernel_size=3, padding=1)
+         
+    def forward(self, x, noise):
+        x = F.relu(self.embed(x))
+        x = torch.cat((x,noise), axis=1)
+        x = self.process(x)
+#         print(x.shape)
+        x = self.upscale(x)
+        x = torch.sigmoid(self.final(x))
+#         print(x.shape)
+        return x
+    
+    def initialize_weights(self):
+        # Initializes weights according to the DCGAN paper
+        for m in self.modules():
+            if isinstance(m, (nn.Conv2d, nn.ConvTranspose2d)):#, nn.BatchNorm2d)):
+#                 nn.init.normal_(m.weight.data, 0.0, 0.02)
+                nn.init.kaiming_normal_(m.weight.data)
+            
+                                     
+class LeinSADisc(nn.Module):
+    def __init__(self, input_channels = 1, nonlin = 'leaky_relu'):
+        super(LeinSADisc, self).__init__()
+        self.hr_block1 = nn.Sequential(LeinResBlock(in_planes = 1, planes=64, stride=2, nonlin = nonlin), 
+                                       LeinResBlock(in_planes = 64, planes=128, stride=2, nonlin = nonlin),
+                                       SelfAttention(128),
+                                       LeinResBlock(in_planes = 128, planes=256, stride=2, nonlin = nonlin))
+        
+        self.lr_block1 = nn.Sequential(LeinResBlock(in_planes = input_channels, planes=64, stride=1, nonlin = nonlin), 
+                                       LeinResBlock(in_planes = 64, planes=128, stride=1, nonlin = nonlin),
+                                       SelfAttention(128),
+                                       LeinResBlock(in_planes = 128, planes=256, stride=1, nonlin = nonlin))
+        
+        self.hr_block2 = nn.Sequential(LeinResBlock(in_planes=256, planes=256, stride=1, nonlin = nonlin))#, block(in_planes=256, planes=256, stride=1, nonlin = nonlin))
+        self.lr_block2 = nn.Sequential(LeinResBlock(in_planes=512, planes=256, stride=1, nonlin = nonlin))#,block(in_planes=256, planes=256, stride=1, nonlin = nonlin))
+        self.dense1 = nn.Linear(512, 256)
+        self.dense2 = nn.Linear(256, 1)
+        nn.init.kaiming_normal_(self.dense1.weight, nonlinearity='leaky_relu')
+        nn.init.kaiming_normal_(self.dense2.weight, nonlinearity = 'linear')
+        self.initialize_weights()
+        
+        
+
+    def forward(self, X, y):
+        hr = self.hr_block1(y)
+        lr = self.lr_block1(X)
+        lr = torch.cat((lr,hr), axis=1)
+        hr = self.hr_block2(hr)
+        lr = self.lr_block2(lr)
+        hr = nn.AvgPool2d(16)(hr)
+        lr = nn.AvgPool2d(16)(lr)
+        out = torch.cat((torch.squeeze(hr), torch.squeeze(lr)), axis=1)
+        out = F.leaky_relu(self.dense1(out), negative_slope=0.02)
+        out = self.dense2(out)
+        return out
+    
+    def initialize_weights(self):
+        # Initializes weights according to the DCGAN paper
+        for m in self.modules():
+            if isinstance(m, (nn.Conv2d, nn.Linear)):#, nn.BatchNorm2d)):
+#                 nn.init.normal_(m.weight.data, 0.0, 0.02)
+                nn.init.kaiming_normal_(m.weight.data)
     
 #########################################################
 ##########################################################
@@ -1058,8 +1355,8 @@ class LeinGANGP(LightningModule):
         self.disc_freq, self.gen_freq = 5, 1
         self.noise_shape = noise_shape
         self.lambda_gp = lambda_gp
-        self.gen = generator()
-        self.disc = discriminator()
+        self.gen = generator(channels_img)
+        self.disc = discriminator(channels_img)
         self.real_idx = real_idx
         self.cond_idx = cond_idx
         if disc_spectral_norm:   # TODO: Fix! currently does not work
@@ -1068,7 +1365,7 @@ class LeinGANGP(LightningModule):
         
     def add_sn(self, m):
         if isinstance(m, (nn.Conv2d, nn.Linear, nn.ConvTranspose2d)):
-            nn.utils.parametrizations.spectral_norm(m)
+            nn.utils.spectral_norm(m)
         else:
             m
         
@@ -1142,7 +1439,169 @@ class LeinGANGP(LightningModule):
 
 
 
+class BaseGAN(LightningModule):
+    def __init__(self, generator, discriminator, noise_shape, input_channels = 1,
+                      b1 = 0.0, b2 = 0.9, disc_lr = 1e-4, gen_lr=1e-4, lambda_gp = 10, cond_idx = 0, real_idx = 1, 
+                      gen_freq = 1, disc_freq=5, disc_spectral_norm = False, gen_spectral_norm = False, loss_type = "wasserstein", 
+                        val_hparams = {'val_nens':10, 'tp_log': 0.01, 'ds_max': 50, 'ds_min': 0}): # fill in
+        super().__init__()
+        self.disc_lr, self.gen_lr, self.b1, self.b2 = disc_lr, gen_lr,  b1, b2
+        self.disc_freq, self.gen_freq = disc_freq, gen_freq
+        self.noise_shape = noise_shape
+        self.lambda_gp = lambda_gp
+        self.gen = generator(input_channels=input_channels)
+        self.disc = discriminator(input_channels=input_channels)
+        self.real_idx = real_idx
+        self.cond_idx = cond_idx
+        self.loss_type = loss_type
+        self.input_channels = input_channels
+        self.val_hparams = val_hparams
+        self.upsample_input = nn.Upsample(scale_factor=8)
+        
+        if disc_spectral_norm:  
+            self.disc.apply(self.add_sn)
+        if gen_spectral_norm:   
+            self.gen.apply(self.add_sn)
+        
+        self.save_hyperparameters()
+        
+    def add_sn(self, m):
+        if isinstance(m, (nn.Conv2d, nn.Linear, nn.ConvTranspose2d)):
+            nn.utils.spectral_norm(m)
+        else:
+            m
 
+                
+    def forward(self, condition, noise):
+        return self.gen(condition, noise)
+    
+    def gradient_penalty(self, condition, real, fake):
+        BATCH_SIZE, C, H, W = real.shape
+        epsilon = torch.rand((BATCH_SIZE, 1, 1, 1), device=self.device).repeat(1,C,H,W)
+        interpolated_images = real*epsilon + fake*(1-epsilon)
+        interpolated_images.requires_grad = True
+        mixed_scores = self.disc(condition, interpolated_images)
+        
+        gradient = torch.autograd.grad(
+                    inputs=interpolated_images,
+                    outputs=mixed_scores, 
+                    grad_outputs = torch.ones_like(mixed_scores), 
+                    create_graph=True, 
+                    retain_graph = True)[0]
 
+        gradient = gradient.view(gradient.shape[0], -1)
+        gradient_norm = gradient.norm(2, dim=1)
+        gradient_penalty = torch.mean((gradient_norm - 1)**2)
+        return gradient_penalty
+    
+    def loss_disc(self, disc_real, disc_fake):
+        if self.loss_type == "wasserstein":
+            return -(torch.mean(disc_real) - torch.mean(disc_fake))
+        else:
+            raise NotImplementedError
+    
+    def loss_gen(self, disc_fake):
+        if self.loss_type == "wasserstein":
+            return -torch.mean(disc_fake)
+        else:
+            raise NotImplementedError
 
+    
+    def training_step(self, batch, batch_idx, optimizer_idx):
+
+        condition, real = batch[self.cond_idx], batch[self.real_idx]
+
+        if self.global_step%100==0:
+            with torch.no_grad():
+                noise = torch.randn(real.shape[0], *self.noise_shape, device=self.device)
+        #         # log sampled images
+                sample_imgs = self.gen(condition, noise)
+                sample_imgs = torch.cat([real, sample_imgs], dim = 0)
+#                 print(sample_imgs.shape)
+                grid = torchvision.utils.make_grid(sample_imgs)
+                self.logger.experiment.add_image('generated_images', grid, self.global_step)
+                if self.input_channels>1:
+                    input_forcasts = self.upsample_input(condition)
+                    print(input_forcasts.view(-1, input_forcasts.shape[2], input_forcasts.shape[3]).unsqueeze(1).shape)
+                    grid = torchvision.utils.make_grid(input_forcasts.view(-1, input_forcasts.shape[2], input_forcasts.shape[3]).unsqueeze(1))
+                else:
+                    grid = torchvision.utils.make_grid(condition)
+                self.logger.experiment.add_image('input_images', grid, self.global_step)
+        
+#         # train discriminator
+        if optimizer_idx == 0:
+            noise = torch.randn(real.shape[0], *self.noise_shape, device=self.device)
+            fake = self.gen(condition, noise)
+            disc_real = self.disc(condition, real).reshape(-1)
+            disc_fake = self.disc(condition, fake).reshape(-1)
+            
+            loss_disc = self.loss_disc(disc_real, disc_fake)
+            
+            if self.lambda_gp:
+                gp = self.gradient_penalty(condition, real, fake)
+                loss_disc = loss_disc + self.lambda_gp*gp
+            
+            self.log('discriminator_loss', loss_disc, on_epoch=True, on_step=True, prog_bar=True, logger=True)
+            return loss_disc
+        
+#         #train generator
+        elif optimizer_idx ==1:
+            noise = torch.randn(real.shape[0], *self.noise_shape, device = self.device)
+            fake = self.gen(condition, noise)
+            disc_fake = self.disc(condition, fake).reshape(-1)
+            loss_gen = self.loss_gen(disc_fake)
+            self.log('generator_loss', loss_gen, on_epoch=True, on_step=True, prog_bar=True, logger=True)
+            return loss_gen 
+        
+        
+    def configure_optimizers(self):
+        gen_opt = optim.Adam(self.gen.parameters(), lr=self.gen_lr, betas=(self.b1, self.b2), weight_decay=1e-4)
+        disc_opt = optim.Adam(self.disc.parameters(), lr=self.disc_lr, betas=(self.b1, self.b2))
+        return [{"optimizer": disc_opt, "frequency": self.disc_freq}, {"optimizer": gen_opt, "frequency": self.gen_freq}]
+#         return gen_opt, disc_opt
+
+    def validation_step(self, batch, batch_idx):
+        
+        x, y = batch[self.cond_idx], batch[self.real_idx]
+        
+        preds = []
+        for i in range(self.val_hparams['val_nens']):
+            noise = torch.randn(x.shape[0], 1, x.shape[2], x.shape[3], device=self.device)
+            pred = self.gen(x, noise).detach().to('cpu').numpy().squeeze()
+            preds.append(pred)
+        preds = np.array(preds)
+        truth = y.detach().to('cpu').numpy().squeeze(1)
+        truth = xr.DataArray(
+                truth,
+                dims=['sample','lat', 'lon'],
+                name='tp'
+            )
+        preds = xr.DataArray(
+                preds,
+                dims=['member', 'sample', 'lat', 'lon'],
+                name='tp'
+            )
+
+        truth = truth * (self.val_hparams['ds_max'] - self.val_hparams['ds_min']) + self.val_hparams['ds_min']
+
+        preds = preds * (self.val_hparams['ds_max'] - self.val_hparams['ds_min']) + self.val_hparams['ds_min']
+    
+        if self.val_hparams['tp_log']:
+            truth = log_retrans(truth, self.val_hparams['tp_log'])
+            preds = log_retrans(preds, self.val_hparams['tp_log'])
+            
+        crps = []    
+        rmse = []
+        for sample in range(x.shape[0]):
+            sample_crps = xs.crps_ensemble(truth.sel(sample=sample), preds.sel(sample=sample)).values
+            sample_rmse = xs.rmse(preds.sel(sample=sample).mean('member'), truth.sel(sample=sample), dim=['lat', 'lon']).values
+            crps.append(sample_crps)
+            rmse.append(sample_rmse)
+            
+        crps = torch.tensor(np.mean(crps))
+        rmse = torch.tensor(np.mean(rmse))
+        self.log('val_crps', crps, on_epoch=True, on_step=False, prog_bar=True, logger=True)
+        self.log('val_rmse', rmse, on_epoch=True, on_step=False, prog_bar=True, logger=True)
+        
+        return crps
 
