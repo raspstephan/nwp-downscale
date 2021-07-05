@@ -910,7 +910,6 @@ class SelfAttention(nn.Module):
         return y
         
         
-
 class BroadLeinSAGen(nn.Module):
     def __init__(self, input_channels=1):
         super(BroadLeinSAGen, self).__init__()
@@ -923,6 +922,84 @@ class BroadLeinSAGen(nn.Module):
         self.upscale = nn.Sequential(LeinResBlock(in_planes=256, planes=256, stride=1,  nonlin = 'leaky_relu'),
                                      UpSample(2, 'bilinear'),
                                      SelfAttention(256),
+                                     LeinResBlock(in_planes=256, planes=128, stride=1,  nonlin = 'leaky_relu'),
+                                     UpSample(2, 'bilinear'),
+                                     LeinResBlock(in_planes=128, planes=64, stride=1,  nonlin = 'leaky_relu'),
+                                     UpSample(2, 'bilinear'),
+                                     LeinResBlock(in_planes=64, planes=32, stride=1,  nonlin = 'leaky_relu'))
+        
+        self.final = nn.Conv2d(32,1, kernel_size=3, padding=1)
+         
+    def forward(self, x, noise):
+        x = F.relu(self.embed(x))
+        x = torch.cat((x,noise), axis=1)
+        x = self.process(x)
+#         print(x.shape)
+        x = self.upscale(x)
+        x = torch.sigmoid(self.final(x))
+#         print(x.shape)
+        return x
+    
+    def initialize_weights(self):
+        # Initializes weights according to the DCGAN paper
+        for m in self.modules():
+            if isinstance(m, (nn.Conv2d, nn.ConvTranspose2d)):#, nn.BatchNorm2d)):
+#                 nn.init.normal_(m.weight.data, 0.0, 0.02)
+                nn.init.kaiming_normal_(m.weight.data)
+            
+                                     
+class BroadLeinDisc(nn.Module):
+    def __init__(self, input_channels = 1, nonlin = 'leaky_relu'):
+        super(BroadLeinDisc, self).__init__()
+        self.hr_block1 = nn.Sequential(LeinResBlock(in_planes = 1, planes=64, stride=2, nonlin = nonlin), 
+                                       LeinResBlock(in_planes = 64, planes=128, stride=2, nonlin = nonlin),
+                                       LeinResBlock(in_planes = 128, planes=256, stride=2, nonlin = nonlin))
+        
+        self.lr_block1 = nn.Sequential(LeinResBlock(in_planes = input_channels, planes=64, stride=2, nonlin = nonlin), 
+                                       LeinResBlock(in_planes = 64, planes=128, stride=2, nonlin = nonlin),
+                                       LeinResBlock(in_planes = 128, planes=256, stride=1, nonlin = nonlin))
+        
+        self.hr_block2 = nn.Sequential(LeinResBlock(in_planes=256, planes=256, stride=1, nonlin = nonlin))#, block(in_planes=256, planes=256, stride=1, nonlin = nonlin))
+        self.lr_block2 = nn.Sequential(LeinResBlock(in_planes=512, planes=256, stride=1, nonlin = nonlin))#,block(in_planes=256, planes=256, stride=1, nonlin = nonlin))
+        self.dense1 = nn.Linear(512, 256)
+        self.dense2 = nn.Linear(256, 1)
+        nn.init.kaiming_normal_(self.dense1.weight, nonlinearity='leaky_relu')
+        nn.init.kaiming_normal_(self.dense2.weight, nonlinearity = 'linear')
+        self.initialize_weights()
+        
+        
+
+    def forward(self, X, y):
+        hr = self.hr_block1(y)
+        lr = self.lr_block1(X)
+        lr = torch.cat((lr,hr), axis=1)
+        hr = self.hr_block2(hr)
+        lr = self.lr_block2(lr)
+        hr = nn.AvgPool2d(16)(hr)
+        lr = nn.AvgPool2d(16)(lr)
+        out = torch.cat((torch.squeeze(hr), torch.squeeze(lr)), axis=1)
+        out = F.leaky_relu(self.dense1(out), negative_slope=0.02)
+        out = self.dense2(out)
+        return out
+    
+    def initialize_weights(self):
+        # Initializes weights according to the DCGAN paper
+        for m in self.modules():
+            if isinstance(m, (nn.Conv2d, nn.Linear)):#, nn.BatchNorm2d)):
+#                 nn.init.normal_(m.weight.data, 0.0, 0.02)
+                nn.init.kaiming_normal_(m.weight.data)
+        
+class BroadLeinGen(nn.Module):
+    def __init__(self, input_channels=1):
+        super(BroadLeinGen, self).__init__()
+        self.embed = nn.Conv2d(input_channels,255, kernel_size=3, padding=1)
+        self.process = nn.Sequential(LeinResBlock(in_planes=256, planes=256, stride=2,  nonlin = 'relu'), 
+                                     LeinResBlock(in_planes=256, planes=256, stride=2, nonlin = 'relu'), 
+#                                      LeinResBlock(in_planes=256, planes=256, stride=2, nonlin = 'relu')
+                            #         self.b4 = BasicBlock(in_planes=256, planes=256, stride=1, nonlin = 'leaky_relu')
+                                        )
+        self.upscale = nn.Sequential(LeinResBlock(in_planes=256, planes=256, stride=1,  nonlin = 'leaky_relu'),
+                                     UpSample(2, 'bilinear'),
                                      LeinResBlock(in_planes=256, planes=128, stride=1,  nonlin = 'leaky_relu'),
                                      UpSample(2, 'bilinear'),
                                      LeinResBlock(in_planes=128, planes=64, stride=1,  nonlin = 'leaky_relu'),
