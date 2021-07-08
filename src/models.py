@@ -21,6 +21,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 
+
 ######################################
 # Stephan's original models
 ######################################
@@ -1511,7 +1512,7 @@ class BaseGAN(LightningModule):
 
         condition, real = batch[self.cond_idx], batch[self.real_idx]
 
-        if self.global_step%100==0:
+        if self.global_step%500==0:
             with torch.no_grad():
                 noise = torch.randn(real.shape[0], *self.noise_shape, device=self.device)
         #         # log sampled images
@@ -1522,7 +1523,7 @@ class BaseGAN(LightningModule):
                 self.logger.experiment.add_image('generated_images', grid, self.global_step)
                 if self.input_channels>1:
                     input_forcasts = self.upsample_input(condition)
-                    print(input_forcasts.view(-1, input_forcasts.shape[2], input_forcasts.shape[3]).unsqueeze(1).shape)
+#                     print(input_forcasts.view(-1, input_forcasts.shape[2], input_forcasts.shape[3]).unsqueeze(1).shape)
                     grid = torchvision.utils.make_grid(input_forcasts.view(-1, input_forcasts.shape[2], input_forcasts.shape[3]).unsqueeze(1))
                 else:
                     grid = torchvision.utils.make_grid(condition)
@@ -1563,7 +1564,7 @@ class BaseGAN(LightningModule):
     def validation_step(self, batch, batch_idx):
         
         x, y = batch[self.cond_idx], batch[self.real_idx]
-        
+
         preds = []
         for i in range(self.val_hparams['val_nens']):
             noise = torch.randn(x.shape[0], 1, x.shape[2], x.shape[3], device=self.device)
@@ -1598,10 +1599,32 @@ class BaseGAN(LightningModule):
             crps.append(sample_crps)
             rmse.append(sample_rmse)
             
-        crps = torch.tensor(np.mean(crps))
-        rmse = torch.tensor(np.mean(rmse))
-        self.log('val_crps', crps, on_epoch=True, on_step=False, prog_bar=True, logger=True)
-        self.log('val_rmse', rmse, on_epoch=True, on_step=False, prog_bar=True, logger=True)
+        crps = torch.tensor(np.mean(crps), device=self.device)
+        rmse = torch.tensor(np.mean(rmse), device=self.device)
+        self.log('val_crps', crps, on_epoch=True, on_step=False, prog_bar=True, logger=True, sync_dist=True)
+        self.log('val_rmse', rmse, on_epoch=True, on_step=False, prog_bar=True, logger=True, sync_dist=True)
         
         return crps
 
+
+    
+    
+    
+GANs = {
+    'base':BaseGAN, 
+    'wgan-gp':WGANGP, 
+       }
+
+gens = {
+    'leingen':LeinGen, 
+    'broadleingen':BroadLeinGen, 
+    'leinsagen':LeinSAGen, 
+    'broadleinsagen':BroadLeinSAGen, 
+}
+
+discs = {
+    'leindisc':LeinDisc,
+    'broadleindisc':BroadLeinDisc, 
+    'leinsadisc':LeinSADisc, 
+    'broadleinsadisc': BroadLeinSADisc
+}
