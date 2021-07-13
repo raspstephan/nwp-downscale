@@ -1524,7 +1524,7 @@ class BaseGAN(LightningModule):
                 if self.input_channels>1:
                     input_forcasts = self.upsample_input(condition)
 #                     print(input_forcasts.view(-1, input_forcasts.shape[2], input_forcasts.shape[3]).unsqueeze(1).shape)
-                    grid = torchvision.utils.make_grid(input_forcasts.view(-1, input_forcasts.shape[2], input_forcasts.shape[3]).unsqueeze(1))
+                    grid = torchvision.utils.make_grid(input_forcasts.view(-1, input_forcasts.shape[2], input_forcasts.shape[3]).unsqueeze(1), nrow=self.input_channels)
                 else:
                     grid = torchvision.utils.make_grid(condition)
                 self.logger.experiment.add_image('input_images', grid, self.global_step)
