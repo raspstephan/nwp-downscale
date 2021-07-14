@@ -6,7 +6,6 @@ import pandas as pd
 from .utils import tqdm, device, to_categorical
 from skimage.measure import block_reduce
 
-
 def log_trans(x, eps):
     """Log transform with given epsilon. Preserves zeros."""
     return np.log(x + eps) - np.log(eps)
@@ -341,3 +340,5 @@ def create_valid_predictions(model, ds_valid):
         name='tp'
     )
     return preds
+
+
