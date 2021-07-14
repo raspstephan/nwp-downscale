@@ -6,9 +6,9 @@ for key in ${constants}; do
   eval ${key}
 done
 
+python train.py --experiment_config $1
+
 dest="${save_dir}${run_name}${run_number}/run_src"
 folder="../src"
 
 cp -r $folder $dest
-
-python train.py --experiment_config $1

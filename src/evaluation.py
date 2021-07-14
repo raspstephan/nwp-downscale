@@ -11,12 +11,44 @@ import torch
 from src.dataloader import log_retrans
 import tqdm.notebook as tqdm
 from pytictoc import TicToc
-from multiprocessing import Pool, Manager
+from multiprocess import Pool
+import multiprocessing as mp
 
 """
 Eval Functions
 """
 
+# def pool_init(x,y,gen,dl_test, nens, ds_min, ds_max, tp_log, device):
+#     global preds
+#     global truth
+#     global preds_pert
+#     global truth_pert
+      
+# crps, max_pool_crps, avg_pool_crps, rmse, rhist, rels
+def compute_metrics(truth, preds, truth_pert, preds_pert, sample):
+    sample_crps = xs.crps_ensemble(truth.sel(sample=sample), preds.sel(sample=sample)).values
+    truth_course = truth.coarsen(lat=4, lon=4)
+    preds_course = preds.coarsen(lat=4, lon=4)
+    sample_max_pool_crps = xs.crps_ensemble(truth_course.max().sel(sample=sample), preds_course.max().sel(sample=sample)).values
+    sample_avg_pool_crps = xs.crps_ensemble(truth_course.mean().sel(sample=sample), preds_course.mean().sel(sample=sample)).values
+#     crps.append(sample_crps)
+#     max_pool_crps.append(sample_max_pool_crps)
+#     avg_pool_crps.append(sample_avg_pool_crps)
+    
+    sample_rmse = xs.rmse(preds.sel(sample=sample).mean('member'), truth.sel(sample=sample), dim=['lat', 'lon']).values
+#     rmse.append(sample_rmse)
+            
+    rhist = xs.rank_histogram(truth_pert.sel(sample=sample), preds_pert.sel(sample=sample)).values
+    
+    rel = xs.reliability(truth.sel(sample=sample)>0.1,(preds.sel(sample=sample)>0.1).mean('member'), probability_bin_edges=np.array([0.1*i for i in range(10)]))
+    rel = xr.where(np.isnan(rel), 0, rel)
+    rel['relative_freq'] = rel
+    
+    
+
+    return (sample_crps, sample_max_pool_crps, sample_avg_pool_crps, sample_rmse, rhist, rel)
+    
+    
 def par_gen_patch_eval(gen, dl_test, nens, ds_min, ds_max, tp_log, device):
     """
     gen: generator, which takes (forecast, noise) as arguments
@@ -24,16 +56,36 @@ def par_gen_patch_eval(gen, dl_test, nens, ds_min, ds_max, tp_log, device):
     ds_min and ds_max: the min and max values for unscaling
     tp_log: for undoing the log scaling
     """
+            
+    
     t = TicToc()
-    manager = Manager()
-    crps = manager.list()
+    crps = []
     rmse = []
     max_pool_crps = []
     avg_pool_crps = []
-    rhist = xr.DataArray(data = np.zeros(nens+1), dims = "rank")
+    rhist = []
+#     []xr.DataArray(data = np.zeros(nens+1), dims = "rank")
     rels = []
+    t.tic()
+    num_workers = mp.cpu_count()
+    print("num_workers:", num_workers)
+    pool = Pool(processes=num_workers)
+    t.toc('Setting up the pool took')
     
-    def eval_batch(x,y):
+    print(f"Total batches: {len(dl_test)}")
+    def log_result(result):
+        for res in result:
+            crps.append(res[0])
+            max_pool_crps.append(res[1])
+            avg_pool_crps.append(res[2])
+            rmse.append(res[3])
+            rhist.append(res[4])
+            rels.append(res[5])
+        print("batch complete")
+        print(f"current len of crps {len(crps)}")
+            
+    for batch_idx, (x,y) in enumerate(dl_test):
+        t.tic()
         x = x.to(device)
         preds = []
         for i in range(nens):
@@ -56,56 +108,29 @@ def par_gen_patch_eval(gen, dl_test, nens, ds_min, ds_max, tp_log, device):
         truth = truth * (ds_max - ds_min) + ds_min
 
         preds = preds * (ds_max - ds_min) + ds_min
-    
+
         if tp_log:
             truth = log_retrans(truth, tp_log)
             preds = log_retrans(preds, tp_log)
-        
+
         truth_pert = truth + np.random.normal(scale=1e-6, size=truth.shape)
-        preds_pert = preds + np.random.normal(scale=1e-6, size=preds.shape)
+        preds_pert = preds + np.random.normal(scale=1e-6, size=preds.shape) 
 
+        pool.starmap_async(compute_metrics, [(truth, preds, truth_pert, preds_pert, i) for i in range(x.shape[0])], callback=log_result).wait()
+        t.toc('batch_took')
+#         result = pool.starmap_async(compute_metrics, [(truth, preds, truth_pert, preds_pert, i) for i in range(x.shape[0])]).get()
+#         log_result(result)
         
-        t.tic()
-        for sample in range(x.shape[0]):
-
-            sample_crps = xs.crps_ensemble(truth.sel(sample=sample), preds.sel(sample=sample)).values
-#             truth_course = truth.coarsen(lat=4, lon=4)
-#             preds_course = preds.coarsen(lat=4, lon=4)
-#             sample_max_pool_crps = xs.crps_ensemble(truth_course.max().sel(sample=sample), preds_course.max().sel(sample=sample)).values
-#             sample_avg_pool_crps = xs.crps_ensemble(truth_course.mean().sel(sample=sample), preds_course.mean().sel(sample=sample)).values
-#             crps.append(sample_crps)
-#             max_pool_crps.append(sample_max_pool_crps)
-#             avg_pool_crps.append(sample_avg_pool_crps)
-            
-# #             t.toc('crps took', restart=True)
-            
-#             sample_rmse = xs.rmse(preds.sel(sample=sample).mean('member'), truth.sel(sample=sample), dim=['lat', 'lon']).values
-#             rmse.append(sample_rmse)
-            
-# #             t.tic()
-#             rhist += xs.rank_histogram(truth_pert.sel(sample=sample), preds_pert.sel(sample=sample)).values
-# #             t.toc('rank histogram took', restart=True)
-            
-# #             t.tic()
-#             rel = xs.reliability(truth.sel(sample=sample)>0.1,(preds.sel(sample=sample)>0.1).mean('member'), probability_bin_edges=np.array([0.1*i for i in range(10)]))
-#             rel = xr.where(np.isnan(rel), 0, rel)
-#             rel['relative_freq'] = rel
-#             rels.append(rel)
-# #             t.toc('reliability took', restart=True)
-            
-        t.toc('metrics took', restart=True)
-         
-    pool = Pool(processes=16)
- 
-    pool.starmap(eval_batch, dl_test)
+    rels = xr.concat(rels, dim = "patch")
+    weights = rels.samples / rels.samples.sum(dim="patch")
+    weighted_relative_freq = (weights*rels.relative_freq).sum(dim="patch")
+    samples = rels.samples.sum(dim="patch")
+    forecast_probs = rels.forecast_probability
     
-    print(crps)
-#     rels = xr.concat(rels, dim = "patch")
-#     weights = rels.samples / rels.samples.sum(dim="patch")
-#     weighted_relative_freq = (weights*rels.relative_freq).sum(dim="patch")
-#     samples = rels.samples.sum(dim="patch")
+    rhist = [sum([h[i] for h in rhist]) for i in range(nens+1)]
     
-#     return np.mean(crps), np.mean(max_pool_crps), np.mean(avg_pool_crps), rhist, (weighted_relative_freq, samples), np.mean(rmse)
+    print("len crps:", len(crps))
+    return np.mean(crps), np.mean(max_pool_crps), np.mean(avg_pool_crps), rhist, (weighted_relative_freq, forecast_probs, samples), np.mean(rmse)
 
 
 
@@ -192,8 +217,9 @@ def gen_patch_eval(gen, dl_test, nens, ds_min, ds_max, tp_log, device):
     weights = rels.samples / rels.samples.sum(dim="patch")
     weighted_relative_freq = (weights*rels.relative_freq).sum(dim="patch")
     samples = rels.samples.sum(dim="patch")
+    forecast_probs = rels.forecast_probability.sel(patch=0)
     
-    return np.mean(crps), np.mean(max_pool_crps), np.mean(avg_pool_crps), rhist, (weighted_relative_freq, samples), np.mean(rmse)
+    return np.mean(crps), np.mean(max_pool_crps), np.mean(avg_pool_crps), rhist, (weighted_relative_freq, forecast_probs, samples), np.mean(rmse)
 
 def single_full_test_prediction(gen, ds_test, device):
     # Get predictions for full field
