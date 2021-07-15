@@ -97,7 +97,7 @@ def train(input_args):
 
     save_dir = args.save_hparams['save_dir']
 
-    checkpoint_callback = pl.callbacks.ModelCheckpoint(dirpath=save_dir)
+    checkpoint_callback = pl.callbacks.ModelCheckpoint(dirpath=save_dir+args.save_hparams['run_name']+str(args.save_hparams['run_number']) + '/')
     
     tb_logger = pl_loggers.TensorBoardLogger(save_dir = '../logs/',
                                              name = args.save_hparams['run_name'], 
@@ -109,7 +109,7 @@ def train(input_args):
                          max_epochs = args.train_hparams['epochs'], 
                          callbacks=[checkpoint_callback], 
                          replace_sampler_ddp = False, 
-                         check_val_every_n_epoch=10, 
+                         check_val_every_n_epoch=20, 
                          logger = tb_logger
                         )
                          
