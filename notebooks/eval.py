@@ -66,8 +66,7 @@ def evaluate(input_args):
     torch.manual_seed(args.seed)
 
     ## Load Data and set data params
-    ds = pickle.load(open(args.data_hparams["test_dataset_path"], "rb"))
-    
+    ds_test = pickle.load(open(args.data_hparams["test_dataset_path"], "rb"))  
     sampler_test = torch.utils.data.SequentialSampler(ds_test)
     dl_test = torch.utils.data.DataLoader(
         ds_test, batch_size=args.eval_hparams["batch_size"], sampler=sampler_test

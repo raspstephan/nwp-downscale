@@ -40,7 +40,7 @@ def compute_metrics(truth, preds, truth_pert, preds_pert, sample):
             
     rhist = xs.rank_histogram(truth_pert.sel(sample=sample), preds_pert.sel(sample=sample)).values
     
-    rel = xs.reliability(truth.sel(sample=sample)>0.1,(preds.sel(sample=sample)>0.1).mean('member'), probability_bin_edges=np.array([0.1*i for i in range(10)]))
+    rel = xs.reliability(truth.sel(sample=sample)>1,(preds.sel(sample=sample)>1).mean('member'), probability_bin_edges=np.array([0.1*i for i in range(10)]))
     rel = xr.where(np.isnan(rel), 0, rel)
     rel['relative_freq'] = rel
     
@@ -64,7 +64,6 @@ def par_gen_patch_eval(gen, dl_test, nens, ds_min, ds_max, tp_log, device):
     max_pool_crps = []
     avg_pool_crps = []
     rhist = []
-#     []xr.DataArray(data = np.zeros(nens+1), dims = "rank")
     rels = []
     t.tic()
     num_workers = mp.cpu_count()
@@ -118,10 +117,10 @@ def par_gen_patch_eval(gen, dl_test, nens, ds_min, ds_max, tp_log, device):
 
         pool.starmap_async(compute_metrics, [(truth, preds, truth_pert, preds_pert, i) for i in range(x.shape[0])], callback=log_result).wait()
         t.toc('batch_took')
-#         result = pool.starmap_async(compute_metrics, [(truth, preds, truth_pert, preds_pert, i) for i in range(x.shape[0])]).get()
-#         log_result(result)
         
+#     print(rels)
     rels = xr.concat(rels, dim = "patch")
+#     print(rels)
     weights = rels.samples / rels.samples.sum(dim="patch")
     weighted_relative_freq = (weights*rels.relative_freq).sum(dim="patch")
     samples = rels.samples.sum(dim="patch")
