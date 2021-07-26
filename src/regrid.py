@@ -36,7 +36,8 @@ def regrid(
 
     # Create regridder
     regridder = xe.Regridder(
-        ds_in, grid_out, method, periodic=False
+        ds_in, grid_out, method, periodic=False,
+        unmapped_to_nan=True
     )
 
     # # Hack to speed up regridding of large files
