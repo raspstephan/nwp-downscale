@@ -86,17 +86,7 @@ def evaluate(input_args):
 
     ## Load Model
 
-    crps, max_pool_crps, avg_pool_crps, rhist, (weighted_relative_freq, forecast_probs, samples), rmse = par_gen_patch_eval(
-                                            gen, dl_test, args.eval_hparams["num_ens"], ds_test.mins.tp.values, ds_test.maxs.tp.values, ds_test.tp_log, device)
-
-
-    metrics = {"crps": crps, 
-               "max_pool_crps": max_pool_crps, 
-               "avg_pool_crps": avg_pool_crps,
-               "rankhist": rhist, 
-               "reliability": (weighted_relative_freq, forecast_probs, samples), 
-               "rmse": rmse
-              }
+    metrics = par_gen_patch_eval(gen, dl_test, args.eval_hparams["num_ens"], ds_test.mins.tp.values, ds_test.maxs.tp.values, ds_test.tp_log, device)    
 
     print(metrics)
 

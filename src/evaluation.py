@@ -18,35 +18,24 @@ import multiprocessing as mp
 Eval Functions
 """
 
-# def pool_init(x,y,gen,dl_test, nens, ds_min, ds_max, tp_log, device):
-#     global preds
-#     global truth
-#     global preds_pert
-#     global truth_pert
-      
-# crps, max_pool_crps, avg_pool_crps, rmse, rhist, rels
 def compute_metrics(truth, preds, truth_pert, preds_pert, sample):
     sample_crps = xs.crps_ensemble(truth.sel(sample=sample), preds.sel(sample=sample)).values
     truth_course = truth.coarsen(lat=4, lon=4)
     preds_course = preds.coarsen(lat=4, lon=4)
     sample_max_pool_crps = xs.crps_ensemble(truth_course.max().sel(sample=sample), preds_course.max().sel(sample=sample)).values
     sample_avg_pool_crps = xs.crps_ensemble(truth_course.mean().sel(sample=sample), preds_course.mean().sel(sample=sample)).values
-#     crps.append(sample_crps)
-#     max_pool_crps.append(sample_max_pool_crps)
-#     avg_pool_crps.append(sample_avg_pool_crps)
-    
     sample_rmse = xs.rmse(preds.sel(sample=sample).mean('member'), truth.sel(sample=sample), dim=['lat', 'lon']).values
-#     rmse.append(sample_rmse)
-            
     rhist = xs.rank_histogram(truth_pert.sel(sample=sample), preds_pert.sel(sample=sample)).values
     
-    rel = xs.reliability(truth.sel(sample=sample)>1,(preds.sel(sample=sample)>1).mean('member'), probability_bin_edges=np.array([0.1*i for i in range(10)]))
-    rel = xr.where(np.isnan(rel), 0, rel)
-    rel['relative_freq'] = rel
+    rel1 = xs.reliability(truth.sel(sample=sample)>1,(preds.sel(sample=sample)>1).mean('member'), probability_bin_edges=np.array([0.1*i for i in range(10)]))
+    rel1 = xr.where(np.isnan(rel1), 0, rel1)
+    rel1['relative_freq'] = rel1
     
-    
+    rel4 = xs.reliability(truth.sel(sample=sample)>1,(preds.sel(sample=sample)>4).mean('member'), probability_bin_edges=np.array([0.1*i for i in range(10)]))
+    rel4 = xr.where(np.isnan(rel4), 0, rel4)
+    rel4['relative_freq'] = rel4
 
-    return (sample_crps, sample_max_pool_crps, sample_avg_pool_crps, sample_rmse, rhist, rel)
+    return (sample_crps, sample_max_pool_crps, sample_avg_pool_crps, sample_rmse, rhist, rel1, rel4)
     
     
 def par_gen_patch_eval(gen, dl_test, nens, ds_min, ds_max, tp_log, device):
@@ -64,7 +53,13 @@ def par_gen_patch_eval(gen, dl_test, nens, ds_min, ds_max, tp_log, device):
     max_pool_crps = []
     avg_pool_crps = []
     rhist = []
-    rels = []
+    rels_1 = []
+    rels_4 = []
+    pred_means = []
+    pred_hists = []
+    truth_means = []
+    truth_hists = []
+    
     t.tic()
     num_workers = mp.cpu_count()
     print("num_workers:", num_workers)
@@ -79,7 +74,9 @@ def par_gen_patch_eval(gen, dl_test, nens, ds_min, ds_max, tp_log, device):
             avg_pool_crps.append(res[2])
             rmse.append(res[3])
             rhist.append(res[4])
-            rels.append(res[5])
+            rels_1.append(res[5])
+            rels_4.append(res[6])
+            
         print("batch complete")
         print(f"current len of crps {len(crps)}")
             
@@ -93,6 +90,7 @@ def par_gen_patch_eval(gen, dl_test, nens, ds_min, ds_max, tp_log, device):
             preds.append(pred)
         preds = np.array(preds)
         truth = y.numpy().squeeze(1)
+        
         truth = xr.DataArray(
                 truth,
                 dims=['sample','lat', 'lon'],
@@ -111,25 +109,56 @@ def par_gen_patch_eval(gen, dl_test, nens, ds_min, ds_max, tp_log, device):
         if tp_log:
             truth = log_retrans(truth, tp_log)
             preds = log_retrans(preds, tp_log)
-
+        
+        eps = 1e-6
+        bin_edges = [-eps] + np.linspace(eps, log_retrans(ds_max, tp_log)+eps, 51).tolist()
+        pred_means.append(np.mean(preds.sel(member=0)))
+        pred_hists.append(np.histogram(preds.sel(member=0), bins = bin_edges, density=False)[0])
+        truth_means.append(np.mean(truth))
+        truth_hists.append(np.histogram(truth, bins = bin_edges, density=False)[0])
+        
         truth_pert = truth + np.random.normal(scale=1e-6, size=truth.shape)
         preds_pert = preds + np.random.normal(scale=1e-6, size=preds.shape) 
 
         pool.starmap_async(compute_metrics, [(truth, preds, truth_pert, preds_pert, i) for i in range(x.shape[0])], callback=log_result).wait()
         t.toc('batch_took')
         
-#     print(rels)
-    rels = xr.concat(rels, dim = "patch")
-#     print(rels)
-    weights = rels.samples / rels.samples.sum(dim="patch")
-    weighted_relative_freq = (weights*rels.relative_freq).sum(dim="patch")
-    samples = rels.samples.sum(dim="patch")
-    forecast_probs = rels.forecast_probability
+        
+
+    rels_1 = xr.concat(rels_1, dim = "patch")
+    weights_1 = rels_1.samples / rels_1.samples.sum(dim="patch")
+    weighted_relative_freq_1 = (weights_1*rels_1.relative_freq).sum(dim="patch")
+    samples_1 = rels_1.samples.sum(dim="patch")
+    forecast_probs_1 = rels_1.forecast_probability
+    
+    rels_4 = xr.concat(rels_4, dim = "patch")
+    weights_4 = rels_4.samples / rels_4.samples.sum(dim="patch")
+    weighted_relative_freq_4 = (weights_4*rels_4.relative_freq).sum(dim="patch")
+    samples_4 = rels_4.samples.sum(dim="patch")
+    forecast_probs_4 = rels_4.forecast_probability
     
     rhist = [sum([h[i] for h in rhist]) for i in range(nens+1)]
     
-    print("len crps:", len(crps))
-    return np.mean(crps), np.mean(max_pool_crps), np.mean(avg_pool_crps), rhist, (weighted_relative_freq, forecast_probs, samples), np.mean(rmse)
+    pred_hists = (np.sum(np.array(pred_hists), axis=0), bin_edges)
+    truth_hists = (np.sum(np.array(truth_hists), axis=0), bin_edges)
+    
+    print(f"total in pres hist {np.sum(pred_hists[0])}, total in true hist {np.sum(truth_hists[0])}")
+    
+    metrics = {"crps": np.mean(crps), 
+               "max_pool_crps": np.mean(max_pool_crps), 
+               "avg_pool_crps": np.mean(avg_pool_crps),
+               "rankhist": rhist, 
+               "reliability_1": (weighted_relative_freq_1, forecast_probs_1, samples_1), 
+               "reliability_4": (weighted_relative_freq_4, forecast_probs_4, samples_4), 
+               "rmse": np.mean(rmse), 
+               "true_mean": np.mean(truth_means),
+               "preds_mean": np.mean(pred_means), 
+               "true_hist": truth_hists,
+               "preds_hist": pred_hists
+              }
+    
+    
+    return metrics
 
 
 
