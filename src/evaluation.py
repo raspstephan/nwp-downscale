@@ -245,7 +245,7 @@ def gen_patch_eval(gen, dl_test, nens, ds_min, ds_max, tp_log, device):
     weights = rels.samples / rels.samples.sum(dim="patch")
     weighted_relative_freq = (weights*rels.relative_freq).sum(dim="patch")
     samples = rels.samples.sum(dim="patch")
-    forecast_probs = rels.forecast_probability.sel(patch=0)
+    forecast_probs = rels.forecast_probability
     
     return np.mean(crps), np.mean(max_pool_crps), np.mean(avg_pool_crps), rhist, (weighted_relative_freq, forecast_probs, samples), np.mean(rmse)
 
