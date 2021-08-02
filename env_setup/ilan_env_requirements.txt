@@ -32,4 +32,6 @@ toml==0.10.2
 tqdm==4.61.1
 werkzeug==2.0.1
 yarl==1.6.3
-
+pip-date==1.0.3
+catalyst==21.6
+pytictoc==1.5.2

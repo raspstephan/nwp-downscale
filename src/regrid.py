@@ -1,4 +1,4 @@
-from fire import Fire
+# from fire import Fire
 import xarray as xr 
 import xesmf as xe
 from glob import glob
@@ -55,7 +55,7 @@ def regrid(
     # ds_out.attrs.update(ds_in.attrs)
 
     # # Regrid dataset
-    ds_out = regridder(ds_in)
+    ds_out = regridder(ds_in);
     return ds_out.astype('float32')
 
 
@@ -113,5 +113,5 @@ def main(var, path, km, check_exists=True, lats=None, lons=None, mrms=False):
 
 
 
-if __name__ == '__main__':
-    Fire(main)
+# if __name__ == '__main__':
+#     Fire(main)

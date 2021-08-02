@@ -6,9 +6,24 @@ for key in ${constants}; do
   eval ${key}
 done
 
-python train.py --experiment_config $1
+if [ $# -eq 2 ]
+then
+    python train.py --experiment_config $1 --ckpt_path $2
 
-dest="${save_dir}${run_name}${run_number}/run_src"
-folder="../src"
+else
+    dest="${save_dir}${run_name}${run_number}/"
 
-cp -r $folder $dest
+    mkdir -p "${dest}"
+
+    folder="../src"
+    
+    echo $dest
+
+    \cp -r $folder $dest
+    
+    rm -r "${dest}run_src" 
+    
+    mv "${dest}src" "${dest}run_src" 
+
+    python train.py --experiment_config $1
+fi

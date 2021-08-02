@@ -64,6 +64,11 @@ class TiggeMRMSDataset(Dataset):
         self.tigge = xr.merge([
             xr.open_mfdataset(f'{tigge_dir}/{v}/*.nc') for v in tigge_vars
         ])  # Merge all TIGGE variables
+               
+        if 'convective_inhibition' in tigge_vars:
+            print("setting nans in convective_inhibition to 0")
+            self.tigge['cin'] = self.tigge['cin'].fillna(0)
+        
         self.tigge['tp'] = self.tigge.tp.diff('lead_time')   # Need to take diff to get 6h accumulation
         self.tigge = self.tigge.sel(lead_time=np.timedelta64(lead_time, 'h'))
         self.mrms = xr.open_mfdataset(f'{mrms_dir}/*.nc').tp   # NOTE: Takes around 30s
