@@ -6,6 +6,7 @@ import xarray as xr
 import numpy as np
 import pandas as pd
 from fire import Fire
+from gribapi.errors import PrematureEndOfFileError
 
 def main(start_date, stop_date, tmp_path, save_path, delete_grib=True, check_exists=True,
          models=['hiresw_conusarw', 'hiresw_conusnmmb', 'hiresw_conusnssl', 'nam_conusnest']):
@@ -43,6 +44,8 @@ def main(start_date, stop_date, tmp_path, save_path, delete_grib=True, check_exi
                         ).tp.rename({'latitude': 'lat', 'longitude': 'lon'})
                         das.append(da)
                         actual_lead_times.append(l)
+                    except KeyError:
+                        print('File corrupted')
                     except HTTPError:
                         print('Missing:', path)
 
