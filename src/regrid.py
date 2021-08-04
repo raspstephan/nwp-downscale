@@ -12,8 +12,9 @@ def regrid(
         km,
         method='bilinear',
         lats=None,
-        lons=None
+        lons=None,
         # reuse_weights=True
+        regridder=None
 ):
 
     ddeg_out = km/100.
@@ -35,10 +36,12 @@ def regrid(
     grid_out = global_grid.sel(lat=slice(*lats), lon=slice(*lons))
 
     # Create regridder
-    regridder = xe.Regridder(
-        ds_in, grid_out, method, periodic=False,
-        unmapped_to_nan=True
-    )
+    if not regridder:
+        print('Creating new regridder')
+        regridder = xe.Regridder(
+            ds_in, grid_out, method, periodic=False,
+            unmapped_to_nan=True,
+        )
 
     # # Hack to speed up regridding of large files
     # ds_list = []
@@ -56,7 +59,7 @@ def regrid(
 
     # # Regrid dataset
     ds_out = regridder(ds_in)
-    return ds_out.astype('float32')
+    return ds_out.astype('float32'), regridder
 
 
 def regrid_mrms(ds_in, km, lats=None, lons=None):
@@ -93,7 +96,7 @@ def regrid_mrms(ds_in, km, lats=None, lons=None):
 
 
 def main(var, path, km, check_exists=True, lats=None, lons=None, mrms=False,
-         models=None):
+         models=None, reuse_regridder=False):
     
     # Recursive call to loop over models
     if models:
@@ -107,7 +110,8 @@ def main(var, path, km, check_exists=True, lats=None, lons=None, mrms=False,
     files = [p.split('/')[-1] for p in sorted(glob(f'{path_in}/*.nc'))]
     path_out = f'{path}/{km}km/{var}/'
     os.makedirs(path_out, exist_ok=True)
-
+    
+    regridder = None
     for f in tqdm(files):
         if check_exists and os.path.exists(path_out + f):
             print(path_out + f, 'exists')
@@ -116,7 +120,8 @@ def main(var, path, km, check_exists=True, lats=None, lons=None, mrms=False,
             if mrms: 
                 ds_out = regrid_mrms(ds_in, km, lats=lats, lons=lons)
             else:
-                ds_out = regrid(ds_in, km, lats=lats, lons=lons)
+                ds_out, regridder = regrid(ds_in, km, lats=lats, lons=lons,
+                                           regridder=regridder if reuse_regridder else None)
             print('Saving file:', path_out + f)
             ds_out.to_netcdf(path_out + f)
             ds_in.close(); ds_out.close()
