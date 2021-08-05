@@ -36,7 +36,7 @@ def regrid(
     grid_out = global_grid.sel(lat=slice(*lats), lon=slice(*lons))
 
     # Create regridder
-    if not regridder:
+    if regridder is None:
         print('Creating new regridder')
         regridder = xe.Regridder(
             ds_in, grid_out, method, periodic=False,
@@ -103,7 +103,7 @@ def main(var, path, km, check_exists=True, lats=None, lons=None, mrms=False,
         for model in models:
             model_path = f'{path}/{model}'
             main(var, model_path, km, check_exists=check_exists, lats=lats, lons=lons,
-                 mrms=mrms)
+                 mrms=mrms, reuse_regridder=reuse_regridder)
         return
     
     path_in = f'{path}/raw/{var}/'
