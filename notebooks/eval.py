@@ -62,7 +62,7 @@ def evaluate(input_args):
     from run_src.models import GANs
     from run_src.dataloader import TiggeMRMSDataset
 #     from run_src.utils import *
-    from src.evaluation import par_gen_patch_eval, gen_patch_eval, par_gen_full_field_eval
+    from src.evaluation import par_gen_patch_eval, gen_patch_eval, par_gen_full_field_eval, par_SR_gen_patch_eval
 
     #set seed
     torch.manual_seed(args.seed)
@@ -85,10 +85,13 @@ def evaluate(input_args):
     gen.train(False);
 
     print("Data loading complete")
-    print("ds test type", type(ds_test))
+#     print("ds test type", type(ds_test))
     ## Load Model
     if input_args.eval_type == "patch":
-        metrics = par_gen_patch_eval(gen, dl_test, args.eval_hparams["num_ens"], ds_test.mins.tp.values, ds_test.maxs.tp.values, ds_test.tp_log, device)    
+        if 'super_resolution' in args:
+            metrics = par_SR_gen_patch_eval(gen, dl_test, args.eval_hparams["num_ens"], ds_test.mins.tp.values, ds_test.maxs.tp.values, ds_test.tp_log, device)
+        else:
+            metrics = par_gen_patch_eval(gen, dl_test, args.eval_hparams["num_ens"], ds_test.mins.tp.values, ds_test.maxs.tp.values, ds_test.tp_log, device)    
     elif input_args.eval_type == "full_field":
         metrics = par_gen_full_field_eval(gen, ds_test, args.eval_hparams["num_ens"], ds_test.mins.tp.values, ds_test.maxs.tp.values, ds_test.tp_log, device)
         

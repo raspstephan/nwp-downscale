@@ -992,20 +992,21 @@ class BroadLeinGen(nn.Module):
     def __init__(self, input_channels=1):
         super(BroadLeinGen, self).__init__()
         self.embed = nn.Conv2d(input_channels,255, kernel_size=3, padding=1)
-        self.process = nn.Sequential(LeinResBlock(in_planes=255, planes=255, stride=2,  nonlin = 'relu'), 
-                                     LeinResBlock(in_planes=255, planes=255, stride=2, nonlin = 'relu'), 
-#                                      LeinResBlock(in_planes=256, planes=256, stride=2, nonlin = 'relu')
-                            #         self.b4 = BasicBlock(in_planes=256, planes=256, stride=1, nonlin = 'leaky_relu')
+        self.process = nn.Sequential(LeinResBlock(in_planes=255, planes=255, stride=2,  nonlin = 'leaky_relu'), 
+                                     LeinResBlock(in_planes=255, planes=255, stride=2, nonlin = 'leaky_relu'), 
+                                     LeinResBlock(in_planes=255, planes=255, stride=1, nonlin = 'leaky_relu'), 
+                                     LeinResBlock(in_planes=255, planes=255, stride=1, nonlin = 'leaky_relu')
                                         )
-        self.upscale = nn.Sequential(LeinResBlock(in_planes=256, planes=256, stride=1,  nonlin = 'leaky_relu'),
+        self.upscale = nn.Sequential(LeinResBlock(in_planes=256, planes=256, stride=1,  nonlin = 'relu'),
                                      UpSample(2, 'bilinear'),
-                                     LeinResBlock(in_planes=256, planes=128, stride=1,  nonlin = 'leaky_relu'),
+                                     LeinResBlock(in_planes=256, planes=128, stride=1,  nonlin = 'relu'),
                                      UpSample(2, 'bilinear'),
-                                     LeinResBlock(in_planes=128, planes=64, stride=1,  nonlin = 'leaky_relu'),
+                                     LeinResBlock(in_planes=128, planes=64, stride=1,  nonlin = 'relu'),
                                      UpSample(2, 'bilinear'),
-                                     LeinResBlock(in_planes=64, planes=32, stride=1,  nonlin = 'leaky_relu'))
+                                     LeinResBlock(in_planes=64, planes=32, stride=1,  nonlin = 'relu'))
         
-        self.final = nn.Sequential(nn.Conv2d(32,16, kernel_size=3, padding=1), nn.LeakyReLU(0.02), nn.Conv2d(16,1, kernel_size=3, padding=1))
+        self.final = nn.Sequential(nn.Conv2d(32,16, kernel_size=3, padding=1), nn.LeakyReLU(0.02),
+                                   nn.Conv2d(16,1, kernel_size=3, padding=1))
          
     def forward(self, x, noise):
         x = F.relu(self.embed(x))
@@ -1150,7 +1151,46 @@ class LeinSADisc(nn.Module):
 #                 nn.init.normal_(m.weight.data, 0.0, 0.02)
                 nn.init.kaiming_normal_(m.weight.data)
     
+    
+
+# class BroadCorrectionEmbeddingGen(nn.Module):
+#     def __init__(self, input_channels=1):
+#         super(BroadCorrectionEmbeddingGen, self).__init__()
+#         self.embed = nn.Conv2d(input_channels,255, kernel_size=3, padding=1)
+#         self.process = nn.Sequential(LeinResBlock(in_planes=255, planes=255, stride=2,  nonlin = 'relu'), 
+#                                      LeinResBlock(in_planes=255, planes=255, stride=2, nonlin = 'relu'), 
+#                                      LeinResBlock(in_planes=256, planes=256, stride=1, nonlin = 'relu'),
+#                                      LeinResBlock(in_planes=256, planes=256, stride=1, nonlin = 'relu')
+#                                         )
+#         self.upscale = nn.Sequential(LeinResBlock(in_planes=256, planes=256, stride=1,  nonlin = 'leaky_relu'),
+#                                      UpSample(2, 'bilinear'),
+#                                      LeinResBlock(in_planes=256, planes=128, stride=1,  nonlin = 'leaky_relu'),
+#                                      UpSample(2, 'bilinear'),
+#                                      LeinResBlock(in_planes=128, planes=64, stride=1,  nonlin = 'leaky_relu'),
+#                                      UpSample(2, 'bilinear'),
+#                                      LeinResBlock(in_planes=64, planes=32, stride=1,  nonlin = 'leaky_relu'))
+        
+#         self.final = nn.Sequential(nn.Conv2d(32,16, kernel_size=3, padding=1), nn.LeakyReLU(0.02), nn.Conv2d(16,1, kernel_size=3, padding=1))
+         
+#     def forward(self, x, noise):
+#         x = F.relu(self.embed(x))
+#         y = self.process(x)
+#         x = torch.cat((x,noise), axis=1)
+# #         print(x.shape)
+#         x = self.upscale(x)
+#         x = torch.sigmoid(self.final(x))
+# #         print(x.shape)
+#         return x
+    
+#     def initialize_weights(self):
+#         # Initializes weights according to the DCGAN paper
+#         for m in self.modules():
+#             if isinstance(m, (nn.Conv2d, nn.ConvTranspose2d)):#, nn.BatchNorm2d)):
+# #                 nn.init.normal_(m.weight.data, 0.0, 0.02)
+#                 nn.init.kaiming_normal_(m.weight.data)
+    
 #########################################################
+######## GAN MODELS ###################
 ##########################################################
 
 class WGANGP(LightningModule):
@@ -1235,115 +1275,6 @@ class WGANGP(LightningModule):
         disc_opt = optim.Adam(self.disc.parameters(), lr=self.lr, betas=(self.b1, self.b2))
         return [{"optimizer": disc_opt, "frequency": self.disc_freq}, {"optimizer": gen_opt, "frequency": self.gen_freq}]
 
-
-#########################################
-# If train disc and gen on same batch:
-#######################################
-
-
-# class WGANGP(LightningModule):
-#     def __init__(self, generator, discriminator, noise_shape, channels_img, features_g, num_classes, img_size, embed_size, features_d, 
-#                       b1 = 0.0, b2 = 0.9, lr = 1e-4, lambda_gp = 10, cond_idx = 0, real_idx = 1): # fill in
-#         super().__init__()
-#         self.lr, self.b1, self.b2 = lr, b1, b2
-#         self.disc_freq, self.gen_freq = 5, 1
-#         self.noise_shape = noise_shape
-#         self.lambda_gp = lambda_gp
-#         self.gen = generator(noise_shape, channels_img, features_g, num_classes, img_size, embed_size)
-#         self.disc = discriminator(channels_img, features_d, num_classes, img_size)
-#         self.num_to_visualise = 12
-#         self.num_classes = num_classes
-#         self.automatic_optimization = False
-#         self.real_idx = real_idx
-#         self.cond_idx = cond_idx
-        
-        
-#     def forward(self, condition, noise):
-#         return self.gen(condition, noise)
-    
-#     def gradient_penalty(self, condition, real, fake):
-#         BATCH_SIZE, C, H, W = real.shape
-#         epsilon = torch.rand((BATCH_SIZE, 1, 1, 1), device=self.device).repeat(1,C,H,W)
-#         interpolated_images = real*epsilon + fake*(1-epsilon)
-#         mixed_scores = self.disc(condition, interpolated_images)
-#         gradient = torch.autograd.grad(
-#                     inputs=interpolated_images,
-#                     outputs=mixed_scores, 
-#                     grad_outputs = torch.ones_like(mixed_scores), 
-#                     create_graph=True, 
-#                     retain_graph = True)[0]
-
-#         gradient = gradient.view(gradient.shape[0], -1)
-#         gradient_norm = gradient.norm(2, dim=1)
-#         gradient_penalty = torch.mean((gradient_norm - 1)**2)
-#         return gradient_penalty
-    
-# #     def training_step(self, batch, batch_idx, optimizer_idx):
-#     def training_step(self, batch, batch_idx):
-#         gen_opt, disc_opt = self.optimizers()
-        
-# #         real, condition = batch # if label is condition.
-#         condition, real = batch[self.cond_idx], batch[self.real_idx]
-# #         print(real.device)
-# #         print(self.global_step)
-#         if self.global_step%100==0:
-#             with torch.no_grad():
-#                 noise = torch.randn(real.shape[0], *self.noise_shape, device=self.device)
-#         #         # log sampled images
-#                 sample_imgs = self.gen(condition, noise)
-# #                 print(sample_imgs.shape)
-#                 sample_imgs = torch.cat([real, sample_imgs], dim = 0)
-#                 grid = torchvision.utils.make_grid(sample_imgs)
-#                 self.logger.experiment.add_image('generated_images', grid, self.global_step)
-        
-#         for _ in range(self.disc_freq):
-# #         # train discriminator
-# #         if optimizer_idx == 0:
-#             noise = torch.randn(real.shape[0], *self.noise_shape, device=self.device)
-#             fake = self.gen(condition, noise)
-#             disc_real = self.disc(condition, real).reshape(-1)
-#             disc_fake = self.disc(condition, fake).reshape(-1)
-#             gp = self.gradient_penalty(condition, real, fake)
-#             loss_disc = -(torch.mean(disc_real) - torch.mean(disc_fake)) + self.lambda_gp*gp
-# #             self.logger.experiment.add_scalar('discriminator_loss', loss_disc, self.current_epoch)
-#             self.log('discriminator_loss', loss_disc, on_epoch=True, on_step=True, prog_bar=True, logger=True)
-# #             return loss_disc
-#             disc_opt.zero_grad()
-# #             self.disc.zero_grad()
-#             self.manual_backward(loss_disc, retain_graph=True)
-# #             loss_disc.backward(retain_graph=True)
-#             disc_opt.step()
-        
-# #         #train generator
-# #         elif optimizer_idx ==1:
-# #         noise = torch.randn(real.shape[0], *self.noise_shape, device = self.device)
-# #         fake = self.gen(condition, noise)
-#         gen_fake = self.disc(condition, fake).reshape(-1)
-#         loss_gen = -torch.mean(gen_fake)
-#         self.log('generator_loss', loss_gen, on_epoch=True, on_step=True, prog_bar=True, logger=True)
-# #         return loss_gen 
-#         gen_opt.zero_grad()
-# #         self.gen.zero_grad()
-#         self.manual_backward(loss_gen)
-# #         loss_gen.backward(retain_graph=True)
-#         gen_opt.step()
-        
-
-        
-    
-# #     def training_epoch_end(self, outputs):
-# #         noise = torch.randn(self.num_to_visualise, *self.noise_shape, device = self.device)
-
-# #         # log sampled images
-# #         sample_imgs = self(torch.randint(low=0, high = self.num_classes - 1, size=(self.num_to_visualise,), device=self.device), noise)
-# #         grid = torchvision.utils.make_grid(sample_imgs)
-# #         self.logger.experiment.add_image('generated_images', grid, self.current_epoch)
-        
-#     def configure_optimizers(self):
-#         gen_opt = optim.Adam(self.gen.parameters(), lr=self.lr, betas=(self.b1, self.b2))
-#         disc_opt = optim.Adam(self.disc.parameters(), lr=self.lr, betas=(self.b1, self.b2))
-# #         return [{"optimizer": disc_opt, "frequency": self.disc_freq}, {"optimizer": gen_opt, "frequency": self.gen_freq}]
-#         return gen_opt, disc_opt
         
     
 class LeinGANGP(LightningModule):
@@ -1511,7 +1442,7 @@ class BaseGAN(LightningModule):
         condition, real = batch[self.cond_idx], batch[self.real_idx]
 
         if self.global_step%500==0:
-            with torch.no_grad():
+                self.gen.eval()
                 noise = torch.randn(real.shape[0], *self.noise_shape, device=self.device)
         #         # log sampled images
                 sample_imgs = self.gen(condition, noise)
@@ -1526,7 +1457,8 @@ class BaseGAN(LightningModule):
                 else:
                     grid = torchvision.utils.make_grid(condition)
                 self.logger.experiment.add_image('input_images', grid, self.global_step)
-        
+                self.gen.train()
+                
 #         # train discriminator
         if optimizer_idx == 0:
             noise = torch.randn(real.shape[0], *self.noise_shape, device=self.device)
@@ -1604,14 +1536,479 @@ class BaseGAN(LightningModule):
         
         return crps
 
+    
+# class BaseGAN2(LightningModule):
+#     def __init__(self, generator, discriminator, noise_shape, input_channels = 1,
+#                       b1 = 0.0, b2 = 0.9, disc_lr = 1e-4, gen_lr=1e-4, lambda_gp = 10, cond_idx = 0, real_idx = 1, 
+#                       gen_freq = 1, disc_freq=5, disc_spectral_norm = False, gen_spectral_norm = False, zero_noise = False,
+#                       loss_hparams = {'disc_loss':"wasserstein", 'gen_loss':"wasserstein"}, 
+#                       val_hparams = {'val_nens':10, 'tp_log': 0.01, 'ds_max': 50, 'ds_min': 0}): # fill in
+#         super().__init__()
+#         self.disc_lr, self.gen_lr, self.b1, self.b2 = disc_lr, gen_lr,  b1, b2
+#         self.disc_freq, self.gen_freq = disc_freq, gen_freq
+#         self.noise_shape = noise_shape
+#         self.lambda_gp = lambda_gp
+#         self.gen = generator(input_channels=input_channels)
+#         self.disc = discriminator(input_channels=input_channels)
+#         self.real_idx = real_idx
+#         self.cond_idx = cond_idx
+#         self.loss_hparams = loss_hparams
+#         self.input_channels = input_channels
+#         self.val_hparams = val_hparams
+#         self.upsample_input = nn.Upsample(scale_factor=8)
+#         self.zero_noise = zero_noise
+        
+#         if disc_spectral_norm:  
+#             self.disc.apply(self.add_sn)
+#         if gen_spectral_norm:   
+#             self.gen.apply(self.add_sn)
+        
+#         self.save_hyperparameters()
+        
+#     def add_sn(self, m):
+#         if isinstance(m, (nn.Conv2d, nn.Linear, nn.ConvTranspose2d)):
+#             nn.utils.spectral_norm(m)
+#         else:
+#             m
+
+                
+#     def forward(self, condition, noise):
+#         return self.gen(condition, noise)
+    
+#     def gradient_penalty(self, condition, real, fake):
+#         BATCH_SIZE, C, H, W = real.shape
+#         epsilon = torch.rand((BATCH_SIZE, 1, 1, 1), device=self.device).repeat(1,C,H,W)
+#         interpolated_images = real*epsilon + fake*(1-epsilon)
+#         interpolated_images.requires_grad = True
+#         mixed_scores = self.disc(condition, interpolated_images)
+        
+#         gradient = torch.autograd.grad(
+#                     inputs=interpolated_images,
+#                     outputs=mixed_scores, 
+#                     grad_outputs = torch.ones_like(mixed_scores), 
+#                     create_graph=True, 
+#                     retain_graph = True)[0]
+
+#         gradient = gradient.view(gradient.shape[0], -1)
+#         gradient_norm = gradient.norm(2, dim=1)
+#         gradient_penalty = torch.mean((gradient_norm - 1)**2)
+#         return gradient_penalty
+    
+#     def loss_disc(self, disc_real, disc_fake):
+#         if self.loss_hparams['disc_loss'] == "wasserstein":
+#             return -(torch.mean(disc_real) - torch.mean(disc_fake))
+#         elif self.loss_hparams['disc_loss'] == "hinge":
+#             return torch.mean(F.relu(1-disc_real)) + torch.mean(F.relu(1+disc_fake))
+#         else:
+#             raise NotImplementedError
+    
+#     def loss_gen(self, fake, disc_fake, real):
+#         if self.loss_hparams['gen_loss'] == "wasserstein":
+#             return -torch.mean(disc_fake)
+#         elif self.loss_hparams['gen_loss'] == "ens_mean_L1_weighted":
+#             assert len(self.noise_shape)==4
+#             l = -torch.mean(disc_fake)
+# #             print('loss in loss gen', l)
+#             lambda_l1_reg = self.loss_hparams['lambda_l1_reg']
+#             mean_fake = torch.mean(fake, dim=0)
+# #             print("mean fake")
+# #             print(mean_fake)
+#             diff = mean_fake - real
+# #             print("diff", diff)
+#             def weight_diff(y):
+#                 return torch.clamp(y+1, min=24)
+#             clipped = weight_diff(real)
+# #             print("clipped", clipped)
+#             weighted_diff = diff * clipped
+# #             print("weighted_diff", weighted_diff)
+# #             print("weighted_diff shape", weighted_diff.shape)
+#             l += lambda_l1_reg*(1/real.numel()) * torch.linalg.norm(weighted_diff.reshape(-1), 1)
+# #             print('loss in loss gen', l)
+#             return l
+#         else:
+#             raise NotImplementedError
 
     
+#     def training_step(self, batch, batch_idx, optimizer_idx):
+
+#         condition, real = batch[self.cond_idx], batch[self.real_idx]
+
+#         if self.global_step%500==0:
+#                 self.gen.eval()
+#                 noise = torch.randn(real.shape[0], *self.noise_shape[-3:], device=self.device)
+#         #         # log sampled images
+#                 sample_imgs = self.gen(condition, noise)
+#                 sample_imgs = torch.cat([real, sample_imgs], dim = 0)
+# #                 print(sample_imgs.shape)
+#                 grid = torchvision.utils.make_grid(sample_imgs)
+#                 self.logger.experiment.add_image('generated_images', grid, self.global_step)
+#                 if self.input_channels>1:
+#                     input_forcasts = self.upsample_input(condition)
+# #                     print(input_forcasts.view(-1, input_forcasts.shape[2], input_forcasts.shape[3]).unsqueeze(1).shape)
+#                     grid = torchvision.utils.make_grid(input_forcasts.view(-1, input_forcasts.shape[2], input_forcasts.shape[3]).unsqueeze(1), nrow=self.input_channels)
+#                 else:
+#                     grid = torchvision.utils.make_grid(condition)
+#                 self.logger.experiment.add_image('input_images', grid, self.global_step)
+#                 self.gen.train()
+        
+# #         # train discriminator
+#         if optimizer_idx == 0:
+#             if self.zero_noise:
+#                 noise = torch.zeros(real.shape[0], *self.noise_shape[-3:], device=self.device)
+#             else:
+#                 noise = torch.randn(real.shape[0], *self.noise_shape[-3:], device=self.device)
+#             disc_real = self.disc(condition, real).reshape(-1)
+#             if len(noise.shape) == 5:
+#                 fakes = []
+#                 disc_fakes = []
+#                 for i in range(noise.shape[1]):
+#                     noise_sample = noise[:,i,:,:,:]
+#                     fake = self.gen(condition, noise_sample)
+#                     disc_fake = self.disc(condition, fake).reshape(-1)
+#                     fakes.append(fake)
+#                     disc_fakes.append(disc_fake)
+#                 fakes = torch.stack(fakes, dim=0)
+#                 disc_fakes = torch.stack(disc_fakes, dim = 0)
+# #                 print("fakes.shape", fakes.shape)
+# #                 print("disc_fakes.shape", disc_fakes.shape)
+#                 loss_disc = self.loss_disc(disc_real, disc_fakes)
+# #                 print("disc loss", loss_disc)
+#             else:
+#                 fake = self.gen(condition, noise)
+#                 disc_fake = self.disc(condition, fake).reshape(-1)
+#                 loss_disc = self.loss_disc(disc_real, disc_fake)
+            
+#             if self.lambda_gp:
+#                 gp = self.gradient_penalty(condition, real, fake)
+#                 loss_disc = loss_disc + self.lambda_gp*gp
+            
+#             self.log('discriminator_loss', loss_disc, on_epoch=True, on_step=True, prog_bar=True, logger=True)
+#             return loss_disc
+        
+# #         #train generator
+#         elif optimizer_idx ==1:
+# #             print(self.gen.training)
+#             if self.zero_noise:
+#                 noise = torch.zeros(real.shape[0], *self.noise_shape, device = self.device)
+#             else:
+#                 noise = torch.randn(real.shape[0], *self.noise_shape, device = self.device)
+#             if len(noise.shape) == 5:
+#                 fakes = []
+#                 disc_fakes = []
+#                 for i in range(noise.shape[1]):
+#                     noise_sample = noise[:,i,:,:,:]
+#                     fake = self.gen(condition, noise_sample)
+#                     disc_fake = self.disc(condition, fake).reshape(-1)
+#                     fakes.append(fake)
+#                     disc_fakes.append(disc_fake)
+#                 fakes = torch.stack(fakes, dim=0)
+#                 disc_fakes = torch.stack(disc_fakes, dim = 0)
+# #                 print("fakes.shape", fakes.shape)
+# #                 print("disc_fakes.shape", disc_fakes.shape)
+#                 loss_gen = self.loss_gen(fakes, disc_fakes, real)
+#             else:
+#                 fake = self.gen(condition, noise)
+#                 disc_fake = self.disc(condition, fake).reshape(-1)
+#                 loss_gen = self.loss_gen(fake, disc_fake, real)
+#             self.log('generator_loss', loss_gen, on_epoch=True, on_step=True, prog_bar=True, logger=True)
+#             return loss_gen 
+        
+        
+#     def configure_optimizers(self):
+#         gen_opt = optim.Adam(self.gen.parameters(), lr=self.gen_lr, betas=(self.b1, self.b2), weight_decay=1e-4)
+#         disc_opt = optim.Adam(self.disc.parameters(), lr=self.disc_lr, betas=(self.b1, self.b2))
+#         return [{"optimizer": disc_opt, "frequency": self.disc_freq}, {"optimizer": gen_opt, "frequency": self.gen_freq}]
+# #         return gen_opt, disc_opt
+
+#     def validation_step(self, batch, batch_idx):
+        
+#         x, y = batch[self.cond_idx], batch[self.real_idx]
+
+#         preds = []
+#         for i in range(self.val_hparams['val_nens']):
+#             noise = torch.randn(x.shape[0], 1, x.shape[2], x.shape[3], device=self.device)
+#             pred = self.gen(x, noise).detach().to('cpu').numpy().squeeze()
+#             preds.append(pred)
+#         preds = np.array(preds)
+#         truth = y.detach().to('cpu').numpy().squeeze(1)
+#         truth = xr.DataArray(
+#                 truth,
+#                 dims=['sample','lat', 'lon'],
+#                 name='tp'
+#             )
+#         preds = xr.DataArray(
+#                 preds,
+#                 dims=['member', 'sample', 'lat', 'lon'],
+#                 name='tp'
+#             )
+
+#         truth = truth * (self.val_hparams['ds_max'] - self.val_hparams['ds_min']) + self.val_hparams['ds_min']
+
+#         preds = preds * (self.val_hparams['ds_max'] - self.val_hparams['ds_min']) + self.val_hparams['ds_min']
     
+#         if self.val_hparams['tp_log']:
+#             truth = log_retrans(truth, self.val_hparams['tp_log'])
+#             preds = log_retrans(preds, self.val_hparams['tp_log'])
+            
+#         crps = []    
+#         rmse = []
+#         for sample in range(x.shape[0]):
+#             sample_crps = xs.crps_ensemble(truth.sel(sample=sample), preds.sel(sample=sample)).values
+#             sample_rmse = xs.rmse(preds.sel(sample=sample).mean('member'), truth.sel(sample=sample), dim=['lat', 'lon']).values
+#             crps.append(sample_crps)
+#             rmse.append(sample_rmse)
+            
+#         crps = torch.tensor(np.mean(crps), device=self.device)
+#         rmse = torch.tensor(np.mean(rmse), device=self.device)
+#         self.log('val_crps', crps, on_epoch=True, on_step=False, prog_bar=True, logger=True, sync_dist=True)
+#         self.log('val_rmse', rmse, on_epoch=True, on_step=False, prog_bar=True, logger=True, sync_dist=True)
+        
+#         return crps
+    
+
+class BaseGAN2(LightningModule):
+    def __init__(self, generator, discriminator, noise_shape, input_channels = 1,
+                      cond_idx = 0, real_idx = 1, 
+                      disc_spectral_norm = False, gen_spectral_norm = False, zero_noise = False,
+                      opt_hparams = {'gen_optimiser':'adam', 'disc_optimiser':'adam', 'disc_lr' : 1e-4, 'gen_lr': 1e-4, 'gen_freq' : 1, 'disc_freq':5, 'b1':0.0, 'b2' : 0.9},
+                      loss_hparams = {'disc_loss': "wasserstein", 'gen_loss':"wasserstein", 'lambda_gp': 10}, 
+                      val_hparams = {'val_nens':10, 'tp_log': 0.01, 'ds_max': 50, 'ds_min': 0}): # fill in
+        super().__init__()
+        
+        self.noise_shape = noise_shape
+        self.gen = generator(input_channels=input_channels)
+        self.disc = discriminator(input_channels=input_channels)
+        self.real_idx = real_idx
+        self.cond_idx = cond_idx
+        self.opt_hparams = opt_hparams
+        self.loss_hparams = loss_hparams
+        self.input_channels = input_channels
+        self.val_hparams = val_hparams
+        self.upsample_input = nn.Upsample(scale_factor=8)
+        self.zero_noise = zero_noise
+        
+        if disc_spectral_norm:  
+            self.disc.apply(self.add_sn)
+        if gen_spectral_norm:   
+            self.gen.apply(self.add_sn)
+        
+        self.save_hyperparameters()
+        
+    def add_sn(self, m):
+        if isinstance(m, (nn.Conv2d, nn.Linear, nn.ConvTranspose2d)):
+            nn.utils.spectral_norm(m)
+        else:
+            m
+
+                
+    def forward(self, condition, noise):
+        return self.gen(condition, noise)
+    
+    def gradient_penalty(self, condition, real, fake):
+        BATCH_SIZE, C, H, W = real.shape
+        epsilon = torch.rand((BATCH_SIZE, 1, 1, 1), device=self.device).repeat(1,C,H,W)
+        interpolated_images = real*epsilon + fake*(1-epsilon)
+        interpolated_images.requires_grad = True
+        mixed_scores = self.disc(condition, interpolated_images)
+        
+        gradient = torch.autograd.grad(
+                    inputs=interpolated_images,
+                    outputs=mixed_scores, 
+                    grad_outputs = torch.ones_like(mixed_scores), 
+                    create_graph=True, 
+                    retain_graph = True)[0]
+
+        gradient = gradient.view(gradient.shape[0], -1)
+        gradient_norm = gradient.norm(2, dim=1)
+        gradient_penalty = torch.mean((gradient_norm - 1)**2)
+        return gradient_penalty
+    
+    def loss_disc(self, disc_real, disc_fake):
+        if self.loss_hparams['disc_loss'] == "wasserstein":
+            return -(torch.mean(disc_real) - torch.mean(disc_fake))
+        elif self.loss_hparams['disc_loss'] == "hinge":
+            return torch.mean(F.relu(1-disc_real)) + torch.mean(F.relu(1+disc_fake))
+        else:
+            raise NotImplementedError
+    
+    def loss_gen(self, fake, disc_fake, real):
+        if self.loss_hparams['gen_loss'] == "wasserstein":
+            return -torch.mean(disc_fake)
+        elif self.loss_hparams['gen_loss'] == "ens_mean_L1_weighted":
+            assert len(self.noise_shape)==4
+            l = -torch.mean(disc_fake)
+#             print('loss in loss gen', l)
+            lambda_l1_reg = self.loss_hparams['lambda_l1_reg']
+            mean_fake = torch.mean(fake, dim=0)
+#             print("mean fake")
+#             print(mean_fake)
+            diff = mean_fake - real
+#             print("diff", diff)
+            def weight_diff(y):
+                return torch.clamp(y+1, min=24)
+            clipped = weight_diff(real)
+#             print("clipped", clipped)
+            weighted_diff = diff * clipped
+#             print("weighted_diff", weighted_diff)
+#             print("weighted_diff shape", weighted_diff.shape)
+            l += lambda_l1_reg*(1/real.numel()) * torch.linalg.norm(weighted_diff.reshape(-1), 1)
+#             print('loss in loss gen', l)
+            return l
+        else:
+            raise NotImplementedError
+
+    
+    def training_step(self, batch, batch_idx, optimizer_idx):
+
+        condition, real = batch[self.cond_idx], batch[self.real_idx]
+
+        if self.global_step%500==0:
+                self.gen.eval()
+                noise = torch.randn(real.shape[0], *self.noise_shape[-3:], device=self.device)
+        #         # log sampled images
+                sample_imgs = self.gen(condition, noise)
+                sample_imgs = torch.cat([real, sample_imgs], dim = 0)
+#                 print(sample_imgs.shape)
+                grid = torchvision.utils.make_grid(sample_imgs)
+                self.logger.experiment.add_image('generated_images', grid, self.global_step)
+                if self.input_channels>1:
+                    input_forcasts = self.upsample_input(condition)
+#                     print(input_forcasts.view(-1, input_forcasts.shape[2], input_forcasts.shape[3]).unsqueeze(1).shape)
+                    grid = torchvision.utils.make_grid(input_forcasts.view(-1, input_forcasts.shape[2], input_forcasts.shape[3]).unsqueeze(1), nrow=self.input_channels)
+                else:
+                    grid = torchvision.utils.make_grid(condition)
+                self.logger.experiment.add_image('input_images', grid, self.global_step)
+                self.gen.train()
+        
+#         # train discriminator
+        if optimizer_idx == 0:
+            if self.zero_noise:
+                noise = torch.zeros(real.shape[0], *self.noise_shape[-3:], device=self.device)
+            else:
+                noise = torch.randn(real.shape[0], *self.noise_shape[-3:], device=self.device)
+            disc_real = self.disc(condition, real).reshape(-1)
+            if len(noise.shape) == 5:
+                fakes = []
+                disc_fakes = []
+                for i in range(noise.shape[1]):
+                    noise_sample = noise[:,i,:,:,:]
+                    fake = self.gen(condition, noise_sample)
+                    disc_fake = self.disc(condition, fake).reshape(-1)
+                    fakes.append(fake)
+                    disc_fakes.append(disc_fake)
+                fakes = torch.stack(fakes, dim=0)
+                disc_fakes = torch.stack(disc_fakes, dim = 0)
+#                 print("fakes.shape", fakes.shape)
+#                 print("disc_fakes.shape", disc_fakes.shape)
+                loss_disc = self.loss_disc(disc_real, disc_fakes)
+#                 print("disc loss", loss_disc)
+            else:
+                fake = self.gen(condition, noise)
+                disc_fake = self.disc(condition, fake).reshape(-1)
+                loss_disc = self.loss_disc(disc_real, disc_fake)
+            
+            if 'lambda_gp' in self.loss_hparams:
+                gp = self.gradient_penalty(condition, real, fake)
+                loss_disc = loss_disc + self.loss_hparams['lambda_gp']*gp
+            
+            self.log('discriminator_loss', loss_disc, on_epoch=True, on_step=True, prog_bar=True, logger=True)
+            return loss_disc
+        
+#         #train generator
+        elif optimizer_idx ==1:
+#             print(self.gen.training)
+            if self.zero_noise:
+                noise = torch.zeros(real.shape[0], *self.noise_shape, device = self.device)
+            else:
+                noise = torch.randn(real.shape[0], *self.noise_shape, device = self.device)
+            if len(noise.shape) == 5:
+                fakes = []
+                disc_fakes = []
+                for i in range(noise.shape[1]):
+                    noise_sample = noise[:,i,:,:,:]
+                    fake = self.gen(condition, noise_sample)
+                    disc_fake = self.disc(condition, fake).reshape(-1)
+                    fakes.append(fake)
+                    disc_fakes.append(disc_fake)
+                fakes = torch.stack(fakes, dim=0)
+                disc_fakes = torch.stack(disc_fakes, dim = 0)
+#                 print("fakes.shape", fakes.shape)
+#                 print("disc_fakes.shape", disc_fakes.shape)
+                loss_gen = self.loss_gen(fakes, disc_fakes, real)
+            else:
+                fake = self.gen(condition, noise)
+                disc_fake = self.disc(condition, fake).reshape(-1)
+                loss_gen = self.loss_gen(fake, disc_fake, real)
+            self.log('generator_loss', loss_gen, on_epoch=True, on_step=True, prog_bar=True, logger=True)
+            return loss_gen 
+        
+        
+    def configure_optimizers(self):
+        if self.opt_hparams['gen_optimiser'] == 'adam':
+            gen_opt = optim.Adam(self.gen.parameters(), lr=self.opt_hparams['gen_lr'], betas=(self.opt_hparams['b1'], self.opt_hparams['b2']), weight_decay=1e-4)
+            
+        elif self.opt_hparams['gen_optimiser'] == 'sgd':
+            gen_opt = optim.SGD(self.gen.parameters(), lr=self.opt_hparams['gen_lr'], momentum = self.opt_hparams['gen_momentum'])
+        else:
+            raise NotImplementedError
+        if self.opt_hparams['disc_optimiser'] == 'adam':
+            disc_opt = optim.Adam(self.disc.parameters(), lr=self.opt_hparams['disc_lr'], betas=(self.opt_hparams['b1'], self.opt_hparams['b2']))
+        elif self.opt_hparams['disc_optimiser'] == 'sgd':
+            disc_opt = optim.SGD(self.disc.parameters(), lr=self.opt_hparams['disc_lr'], momentum = self.opt_hparams['disc_momentum'])
+        else:
+            raise NotImplementedError
+        return [{"optimizer": disc_opt, "frequency": self.opt_hparams['disc_freq']}, {"optimizer": gen_opt, "frequency": self.opt_hparams['gen_freq']}]
+
+    def validation_step(self, batch, batch_idx):
+        
+        x, y = batch[self.cond_idx], batch[self.real_idx]
+
+        preds = []
+        for i in range(self.val_hparams['val_nens']):
+            noise = torch.randn(y.shape[0], *self.noise_shape[-3:], device=self.device)
+            pred = self.gen(x, noise).detach().to('cpu').numpy().squeeze()
+            preds.append(pred)
+        preds = np.array(preds)
+        truth = y.detach().to('cpu').numpy().squeeze(1)
+        truth = xr.DataArray(
+                truth,
+                dims=['sample','lat', 'lon'],
+                name='tp'
+            )
+        preds = xr.DataArray(
+                preds,
+                dims=['member', 'sample', 'lat', 'lon'],
+                name='tp'
+            )
+
+        truth = truth * (self.val_hparams['ds_max'] - self.val_hparams['ds_min']) + self.val_hparams['ds_min']
+
+        preds = preds * (self.val_hparams['ds_max'] - self.val_hparams['ds_min']) + self.val_hparams['ds_min']
+    
+        if self.val_hparams['tp_log']:
+            truth = log_retrans(truth, self.val_hparams['tp_log'])
+            preds = log_retrans(preds, self.val_hparams['tp_log'])
+            
+        crps = []    
+        rmse = []
+        for sample in range(x.shape[0]):
+            sample_crps = xs.crps_ensemble(truth.sel(sample=sample), preds.sel(sample=sample)).values
+            sample_rmse = xs.rmse(preds.sel(sample=sample).mean('member'), truth.sel(sample=sample), dim=['lat', 'lon']).values
+            crps.append(sample_crps)
+            rmse.append(sample_rmse)
+            
+        crps = torch.tensor(np.mean(crps), device=self.device)
+        rmse = torch.tensor(np.mean(rmse), device=self.device)
+        self.log('val_crps', crps, on_epoch=True, on_step=False, prog_bar=True, logger=True, sync_dist=True)
+        self.log('val_rmse', rmse, on_epoch=True, on_step=False, prog_bar=True, logger=True, sync_dist=True)
+        
+        return crps
     
 GANs = {
     'base':BaseGAN, 
     'wgan-gp':WGANGP, 
-       }
+    'base2':BaseGAN2,
+}
 
 gens = {
     'leingen':LeinGen, 

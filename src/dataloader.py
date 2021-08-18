@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 from .utils import tqdm, device, to_categorical
 from skimage.measure import block_reduce
+from skimage.transform import resize
 
 def log_trans(x, eps):
     """Log transform with given epsilon. Preserves zeros."""
@@ -29,7 +30,7 @@ class TiggeMRMSDataset(Dataset):
     """
     def __init__(self, tigge_dir, tigge_vars, mrms_dir, lead_time=12, patch_size=512, rq_fn=None, 
                  const_fn=None, const_vars=None, scale=True, data_period=None, first_days=None,
-                 val_days=None, split=None, mins=None, maxs=None, pad_tigge=0, tp_log=None,
+                 val_days=None, split=None, mins=None, maxs=None, pad_tigge=0, pad_tigge_channel = True, tp_log=None,
                  cat_bins=None, pure_sr_ratio=None, dropna=True, ensemble_mode=None):
         """
         tigge_dir: Path to TIGGE data without variable name
@@ -97,6 +98,7 @@ class TiggeMRMSDataset(Dataset):
         self.mrms_km = 4
         self.ratio = self.tigge_km // self.mrms_km
         self.pad_tigge = pad_tigge
+        self.pad_tigge_channel = pad_tigge_channel
         self.pad_mrms = self.pad_tigge * self.ratio
         self.patch_tigge = self.patch_size // self.tigge_km
         self.patch_mrms = self.patch_size // self.mrms_km
@@ -207,6 +209,7 @@ class TiggeMRMSDataset(Dataset):
         else:
             lat_slice = slice(lat_idx * self.patch_tigge, (lat_idx+1) * self.patch_tigge + self.pad_tigge*2)
             lon_slice = slice(lon_idx * self.patch_tigge, (lon_idx+1) * self.patch_tigge + self.pad_tigge*2)
+            
         X = self.tigge.isel(
             valid_time=time_idx,
             lat=lat_slice,
@@ -246,6 +249,12 @@ class TiggeMRMSDataset(Dataset):
         if self.cat_bins is not None and not no_cat:
             y = self._categorize(y)
             
+        if self.pad_tigge_channel:
+            X_crop = X[:,self.pad_tigge:self.pad_tigge + self.patch_tigge, self.pad_tigge:self.pad_tigge + self.patch_tigge]
+            X_downsample = resize(X, (X.shape[0], self.patch_tigge, self.patch_tigge))
+            print(X_crop.shape)
+            print(X_downsample.shape)
+            X = np.concatenate((X_crop, X_downsample), axis=0)
         return X.astype(np.float32), y.astype(np.float32)   # [vars, patch, patch]
     
     def _add_const(self, X, lat_slice, lon_slice):

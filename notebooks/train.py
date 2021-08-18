@@ -103,11 +103,15 @@ def train(input_args):
     print("Data loading complete")
     ## Load Model
     if input_args.ckpt_path:
+#         model = GANs[args.gan](**args.gan_hparams)
         model = GANs[args.gan].load_from_checkpoint(input_args.ckpt_path)
-        model.disc_lr = args.gan_hparams['disc_lr']
-        model.gen_lr = args.gan_hparams['gen_lr']
-        print(model.disc_lr)
-        print(model.gen_lr)
+#         model.gen.load_state_dict(temp_model.gen.state_dict())
+#         model.disc.load_state_dict(temp_model.disc.state_dict())
+#         del temp_model
+        model.opt_hparams = args.gan_hparams['opt_hparams']
+        model.opt_hparams = args.gan_hparams['opt_hparams']
+        print(model.opt_hparams['disc_lr'])
+        print(model.opt_hparams['gen_lr'])
     else:
         model = GANs[args.gan](**args.gan_hparams)
 
@@ -139,7 +143,8 @@ def train(input_args):
                          callbacks=[checkpoint_callback], 
                          replace_sampler_ddp = False, 
                          check_val_every_n_epoch=20, 
-                         logger = tb_logger
+                         logger = tb_logger, 
+#                          auto_select_gpus=True
                         )
                          
     print("Training model...")
