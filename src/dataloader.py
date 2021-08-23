@@ -251,9 +251,7 @@ class TiggeMRMSDataset(Dataset):
             
         if self.pad_tigge_channel:
             X_crop = X[:,self.pad_tigge:self.pad_tigge + self.patch_tigge, self.pad_tigge:self.pad_tigge + self.patch_tigge]
-            X_downsample = resize(X, (X.shape[0], self.patch_tigge, self.patch_tigge))
-            print(X_crop.shape)
-            print(X_downsample.shape)
+            X_downsample = resize(X[0:1,:,:], (1, self.patch_tigge, self.patch_tigge))
             X = np.concatenate((X_crop, X_downsample), axis=0)
         return X.astype(np.float32), y.astype(np.float32)   # [vars, patch, patch]
     

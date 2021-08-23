@@ -103,13 +103,10 @@ def train(input_args):
     print("Data loading complete")
     ## Load Model
     if input_args.ckpt_path:
-#         model = GANs[args.gan](**args.gan_hparams)
         model = GANs[args.gan].load_from_checkpoint(input_args.ckpt_path)
-#         model.gen.load_state_dict(temp_model.gen.state_dict())
-#         model.disc.load_state_dict(temp_model.disc.state_dict())
-#         del temp_model
+        model.loss_hparams = args.gan_hparams['loss_hparams']
         model.opt_hparams = args.gan_hparams['opt_hparams']
-        model.opt_hparams = args.gan_hparams['opt_hparams']
+        model.noise_shape = args.gan_hparams['noise_shape']
         print(model.opt_hparams['disc_lr'])
         print(model.opt_hparams['gen_lr'])
     else:

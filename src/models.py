@@ -734,6 +734,44 @@ class LeinGen(nn.Module):
             if isinstance(m, (nn.Conv2d, nn.ConvTranspose2d)):#, nn.BatchNorm2d)):
 #                 nn.init.normal_(m.weight.data, 0.0, 0.02)
                 nn.init.kaiming_normal_(m.weight.data)
+    
+class LeinGen2(nn.Module):
+    def __init__(self, input_channels=1):
+        super(LeinGen2, self).__init__()
+        self.embed = nn.Sequential(nn.Conv2d(input_channels,64, kernel_size=3, padding=1), nn.ReLU(), 
+                                      LeinResBlock(in_planes=64, planes=128, stride=1,  nonlin = 'relu'), 
+                                      LeinResBlock(in_planes=128, planes=255, stride=1, nonlin = 'relu'))
+        
+        self.process = nn.Sequential(LeinResBlock(in_planes=256, planes=256, stride=1,  nonlin = 'relu'), 
+                                      LeinResBlock(in_planes=256, planes=256, stride=1, nonlin = 'relu'), 
+                            #         self.b3 = BasicBlock(in_planes=256, planes=256, stride=1, nonlin = 'relu')
+                            #         self.b4 = BasicBlock(in_planes=256, planes=256, stride=1, nonlin = 'leaky_relu')
+                                        )
+        self.upscale = nn.Sequential(LeinResBlock(in_planes=256, planes=256, stride=1,  nonlin = 'leaky_relu'),
+                                     UpSample(2, 'bilinear'),
+                                     LeinResBlock(in_planes=256, planes=128, stride=1,  nonlin = 'leaky_relu'),
+                                     UpSample(2, 'bilinear'),
+                                     LeinResBlock(in_planes=128, planes=64, stride=1,  nonlin = 'leaky_relu'),
+                                     UpSample(2, 'bilinear'),
+                                     LeinResBlock(in_planes=64, planes=32, stride=1,  nonlin = 'leaky_relu'))
+        
+        self.final = nn.Conv2d(32,1, kernel_size=3, padding=1)
+         
+    def forward(self, x, noise):
+        x = self.embed(x)
+        x = torch.cat((x,noise), axis=1)
+        x = self.process(x)
+#         print(x.shape)
+        x = self.upscale(x)
+        x = torch.sigmoid(self.final(x))
+        return x
+    
+    def initialize_weights(self):
+        # Initializes weights according to the DCGAN paper
+        for m in self.modules():
+            if isinstance(m, (nn.Conv2d, nn.ConvTranspose2d)):#, nn.BatchNorm2d)):
+#                 nn.init.normal_(m.weight.data, 0.0, 0.02)
+                nn.init.kaiming_normal_(m.weight.data)
             
                                      
 class LeinDisc(nn.Module):
@@ -786,9 +824,9 @@ class LeinDisc(nn.Module):
 #                 m = nn.utils.parametrizations.spectral_norm(m)
                                      
                                      
-class LeinGen2(nn.Module):
+class LeinGenOld(nn.Module):
     def __init__(self):
-        super(LeinGen, self).__init__()
+        super(LeinGenOld, self).__init__()
         self.embed = nn.Conv2d(1,255, kernel_size=3, padding=1)
         self.process = nn.Sequential(BasicBlock(in_planes=256, planes=256, stride=1,  nonlin = 'relu'), 
                                       BasicBlock(in_planes=256, planes=256, stride=1, nonlin = 'relu'), 
@@ -2011,7 +2049,8 @@ GANs = {
 }
 
 gens = {
-    'leingen':LeinGen, 
+    'leingen':LeinGen,
+    'leingen2':LeinGen2, 
     'broadleingen':BroadLeinGen, 
     'leinsagen':LeinSAGen, 
     'broadleinsagen':BroadLeinSAGen, 

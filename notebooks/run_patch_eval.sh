@@ -8,4 +8,5 @@ do
     filepath="${filepath%\"}"
     filepath="${filepath#\"}"
     python eval.py --eval_config $filepath --type patch &
+    python visualise_predictions.py --eval_config $filepath &
 done
