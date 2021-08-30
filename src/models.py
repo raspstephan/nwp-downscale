@@ -772,8 +772,9 @@ class LeinGen2(nn.Module):
             if isinstance(m, (nn.Conv2d, nn.ConvTranspose2d)):#, nn.BatchNorm2d)):
 #                 nn.init.normal_(m.weight.data, 0.0, 0.02)
                 nn.init.kaiming_normal_(m.weight.data)
-            
-                                     
+    
+    
+
 class LeinDisc(nn.Module):
     def __init__(self, input_channels=1, nonlin = 'leaky_relu'):
         super(LeinDisc, self).__init__()
@@ -2042,6 +2043,188 @@ class BaseGAN2(LightningModule):
         
         return crps
     
+
+from .stylegan import Conv2dWeightModulateNoStyle, EqualizedLinear, EqualizedConv2d, EqualizedWeight
+from .stylegan import UpSample as StyleUpSample
+from .stylegan import DownSample as StyleDownSample
+
+
+class LeinStyleGen(nn.Module):
+    def __init__(self, input_channels=1):
+        super(LeinStyleGen, self).__init__()
+        self.embed = nn.Sequential(EqualizedConv2d(input_channels,64, kernel_size=3), nn.LeakyReLU(negative_slope=0.02), 
+                                      LeinStyleResBlock(conv_block = EqConvBlock, in_planes=64, planes=128,  nonlin = 'leaky_relu'), 
+                                      LeinStyleResBlock(conv_block = EqConvBlock, in_planes=128, planes=255, nonlin = 'leaky_relu'))
+        
+        self.process = nn.Sequential(LeinStyleResBlock(conv_block = EqConvBlock, in_planes=256, planes=256,  nonlin = 'leaky_relu'), 
+                                      LeinStyleResBlock(conv_block = EqConvBlock, in_planes=256, planes=256, nonlin = 'leaky_relu'), 
+                            #         self.b3 = BasicBlock(in_planes=256, planes=256, stride=1, nonlin = 'relu')
+                            #         self.b4 = BasicBlock(in_planes=256, planes=256, stride=1, nonlin = 'leaky_relu')
+                                        )
+        self.upscale = nn.Sequential(LeinStyleResBlock(conv_block = EqConvBlock, in_planes=256, planes=256,  nonlin = 'leaky_relu'),
+                                     StyleUpSample(),
+                                     LeinStyleResBlock(conv_block = EqConvBlock, in_planes=256, planes=128,  nonlin = 'leaky_relu'),
+                                     StyleUpSample(),
+                                     LeinStyleResBlock(conv_block = EqConvBlock, in_planes=128, planes=64, nonlin = 'leaky_relu'),
+                                     StyleUpSample(),
+                                     LeinStyleResBlock(conv_block = EqConvBlock, in_planes=64, planes=32,  nonlin = 'leaky_relu'))
+        
+        self.final = EqualizedConv2d(32,1, kernel_size=3)
+         
+    def forward(self, x, noise):
+        x = self.embed(x)
+        x = torch.cat((x,noise), axis=1)
+        x = self.process(x)
+#         print(x.shape)
+        x = self.upscale(x)
+        x = torch.sigmoid(self.final(x))
+        return x
+    
+class LeinStyleGen2(nn.Module):
+    def __init__(self, input_channels=1):
+        super(LeinStyleGen2, self).__init__()
+        self.embed = nn.Sequential(Conv2dWeightModulateNoStyle(input_channels,64, kernel_size=3), nn.LeakyReLU(negative_slope=0.02), 
+                                      LeinStyleResBlock(conv_block = ModulatedConvBlock, in_planes=64, planes=128,  nonlin = 'leaky_relu'), 
+                                      LeinStyleResBlock(conv_block = ModulatedConvBlock, in_planes=128, planes=255, nonlin = 'leaky_relu'))
+        
+        self.process = nn.Sequential(LeinStyleResBlock(conv_block = ModulatedConvBlock, in_planes=256, planes=256,  nonlin = 'leaky_relu'), 
+                                      LeinStyleResBlock(conv_block = ModulatedConvBlock, in_planes=256, planes=256, nonlin = 'leaky_relu'), 
+                            #         self.b3 = BasicBlock(in_planes=256, planes=256, stride=1, nonlin = 'relu')
+                            #         self.b4 = BasicBlock(in_planes=256, planes=256, stride=1, nonlin = 'leaky_relu')
+                                        )
+        self.upscale = nn.Sequential(LeinStyleResBlock(conv_block = ModulatedConvBlock, in_planes=256, planes=256,  nonlin = 'leaky_relu'),
+                                     StyleUpSample(),
+                                     LeinStyleResBlock(conv_block = ModulatedConvBlock, in_planes=256, planes=128,  nonlin = 'leaky_relu'),
+                                     StyleUpSample(),
+                                     LeinStyleResBlock(conv_block = ModulatedConvBlock, in_planes=128, planes=64, nonlin = 'leaky_relu'),
+                                     StyleUpSample(),
+                                     LeinStyleResBlock(conv_block = ModulatedConvBlock, in_planes=64, planes=32,  nonlin = 'leaky_relu'))
+        
+        self.final = Conv2dWeightModulateNoStyle(32,1, kernel_size=3)
+         
+    def forward(self, x, noise):
+        x = self.embed(x)
+        x = torch.cat((x,noise), axis=1)
+        x = self.process(x)
+#         print(x.shape)
+        x = self.upscale(x)
+        x = torch.sigmoid(self.final(x))
+        return x
+    
+class ModulatedConvBlock(nn.Module):
+    def __init__(self, in_channels, channels, kernel_size = 3, norm=None, activation='leaky_relu', padding=1):
+        super(ModulatedConvBlock, self).__init__()
+        self.conv = Conv2dWeightModulateNoStyle(in_channels, channels, kernel_size=kernel_size)
+        self.norm = norm
+        self.activation = activation
+        
+    def forward(self, x):
+        
+        if self.norm=="batch":
+            x = nn.BatchNorm2d(in_channels)(x)
+        if self.activation == 'leaky_relu':
+            x = F.leaky_relu(x, negative_slope=0.2)
+        elif self.activation == 'relu':
+            x = F.relu(x)
+        x = self.conv(x)
+        return x               
+
+class LeinStyleResBlock(nn.Module):
+
+    def __init__(self, conv_block=ModulatedConvBlock, in_planes=256, planes=256, nonlin = 'relu', norm =None):
+        super(LeinStyleResBlock, self).__init__()
+        self.in_planes = in_planes
+        self.planes = planes
+        self.nonlin = nonlin
+        self.norm = norm
+        
+        shortcut_modules = []
+#         if self.stride>1:
+#             shortcut_modules.append(nn.AvgPool2d(self.stride))
+        if (self.planes != self.in_planes):
+                shortcut_modules.append(conv_block(self.in_planes, self.planes, 1,
+                    activation=False, padding=0))
+        
+        self.shortcut = nn.Sequential(*shortcut_modules)   
+        self.convblock1 = conv_block(self.in_planes, self.planes, 3,
+            norm=self.norm,
+            activation=self.nonlin)
+        self.convblock2 = conv_block(self.planes, self.planes, 3,
+            norm=self.norm,
+            activation=self.nonlin)
+        
+    def forward(self, x):
+        x_in = x
+        x = self.convblock1(x)
+        x = self.convblock2(x)
+        x_in = self.shortcut(x_in)
+        x = x + x_in
+        return x
+
+
+
+
+class EqConvBlock(nn.Module):
+    def __init__(self, in_channels, channels, kernel_size = 3, norm=None, activation='leaky_relu', padding=1):
+        super(EqConvBlock, self).__init__()
+        self.conv = EqualizedConv2d(in_channels, channels, kernel_size=kernel_size, padding=padding)
+        self.norm = norm
+        self.activation = activation
+        
+    def forward(self, x):
+        
+        if self.norm=="batch":
+            x = nn.BatchNorm2d(in_channels)(x)
+        if self.activation == 'leaky_relu':
+            x = F.leaky_relu(x, negative_slope=0.2)
+        elif self.activation == 'relu':
+            x = F.relu(x)
+        x = self.conv(x)
+        return x
+
+    
+class LeinStyleDisc(nn.Module):
+    def __init__(self, input_channels=1, nonlin = 'leaky_relu'):
+        super(LeinStyleDisc, self).__init__()
+        hr_block = []
+        lr_block = []
+        lr_inplanes = input_channels
+        hr_inplanes = 1
+        for planes in [64, 128, 256]:
+            hr_block.append(LeinStyleResBlock(conv_block = EqConvBlock, in_planes = hr_inplanes, planes=planes, nonlin = nonlin))
+            hr_block.append(StyleDownSample())
+            lr_block.append(LeinStyleResBlock(conv_block = EqConvBlock, in_planes = lr_inplanes, planes=planes, nonlin = nonlin))
+            lr_inplanes=planes
+            hr_inplanes=planes
+        self.hr_block1 = nn.Sequential(*hr_block)
+        self.lr_block1 = nn.Sequential(*lr_block)
+        self.hr_block2 = nn.Sequential(LeinStyleResBlock(conv_block = EqConvBlock, in_planes=256, planes=256, nonlin = nonlin))#, block(in_planes=256, planes=256, stride=1, nonlin = nonlin))
+        self.lr_block2 = nn.Sequential(LeinStyleResBlock(conv_block = EqConvBlock, in_planes=512, planes=256, nonlin = nonlin))#,block(in_planes=256, planes=256, stride=1, nonlin = nonlin))
+        self.dense1 = EqualizedLinear(512, 256)
+        self.dense2 = EqualizedLinear(256, 1)
+        
+        
+        
+
+    def forward(self, X, y):
+        hr = self.hr_block1(y)
+        lr = self.lr_block1(X)
+        lr = torch.cat((lr,hr), axis=1)
+        hr = self.hr_block2(hr)
+        lr = self.lr_block2(lr)
+        hr = nn.AvgPool2d(16)(hr)
+        lr = nn.AvgPool2d(16)(lr)
+        out = torch.cat((torch.reshape(hr, (hr.shape[0],-1)), torch.reshape(lr, (lr.shape[0], -1))), axis=1)
+        out = F.leaky_relu(self.dense1(out), negative_slope=0.02)
+        out = self.dense2(out)
+        return out    
+    
+    
+    
+    
+    
+    
+    
 GANs = {
     'base':BaseGAN, 
     'wgan-gp':WGANGP, 
@@ -2054,11 +2237,14 @@ gens = {
     'broadleingen':BroadLeinGen, 
     'leinsagen':LeinSAGen, 
     'broadleinsagen':BroadLeinSAGen, 
+    'leinstylegen': LeinStyleGen,
+    'leinstylegen2': LeinStyleGen2
 }
 
 discs = {
     'leindisc':LeinDisc,
     'broadleindisc':BroadLeinDisc, 
     'leinsadisc':LeinSADisc, 
-    'broadleinsadisc': BroadLeinSADisc
+    'broadleinsadisc': BroadLeinSADisc, 
+    'leinstyledisc': LeinStyleDisc
 }

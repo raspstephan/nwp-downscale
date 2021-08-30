@@ -305,7 +305,7 @@ class Conv2dWeightModulate(nn.Module):
     """
 
     def __init__(self, in_features: int, out_features: int, kernel_size: int,
-                 demodulate: float = True, eps: float = 1e-8):
+                 demodulate: float = True, eps: float = 1e-5):
         """
         * `in_features` is the number of features in the input feature map
         * `out_features` is the number of features in the output feature map
@@ -344,6 +344,70 @@ class Conv2dWeightModulate(nn.Module):
         #
         # The result has shape `[batch_size, out_features, in_features, kernel_size, kernel_size]`
         weights = weights * s
+
+        # Demodulate
+        if self.demodulate:
+            # $$\sigma_j = \sqrt{\sum_{i,k} (w'_{i, j, k})^2 + \epsilon}$$
+            sigma_inv = torch.rsqrt((weights ** 2).sum(dim=(2, 3, 4), keepdim=True) + self.eps)
+            # $$w''_{i,j,k} = \frac{w'_{i,j,k}}{\sqrt{\sum_{i,k} (w'_{i, j, k})^2 + \epsilon}}$$
+            weights = weights * sigma_inv
+
+        # Reshape `x`
+        x = x.reshape(1, -1, h, w)
+
+        # Reshape weights
+        _, _, *ws = weights.shape
+        weights = weights.reshape(b * self.out_features, *ws)
+
+        # Use grouped convolution to efficiently calculate the convolution with sample wise kernel.
+        # i.e. we have a different kernel (weights) for each sample in the batch
+        x = F.conv2d(x, weights, padding=self.padding, groups=b)
+
+        # Reshape `x` to `[batch_size, out_features, height, width]` and return
+        return x.reshape(-1, self.out_features, h, w)
+    
+class Conv2dWeightModulateNoStyle(nn.Module):
+    """
+    ### Convolution with Weight Modulation and Demodulation
+    This layer scales the convolution weights by the style vector and demodulates by normalizing it.
+    """
+
+    def __init__(self, in_features: int, out_features: int, kernel_size: int,
+                 demodulate: float = True, eps: float = 1e-5):
+        """
+        * `in_features` is the number of features in the input feature map
+        * `out_features` is the number of features in the output feature map
+        * `kernel_size` is the size of the convolution kernel
+        * `demodulate` is flag whether to normalize weights by its standard deviation
+        * `eps` is the $\epsilon$ for normalizing
+        """
+        super().__init__()
+        # Number of output features
+        self.out_features = out_features
+        # Whether to normalize weights
+        self.demodulate = demodulate
+        # Padding size
+        self.padding = (kernel_size - 1) // 2
+
+        # [Weights parameter with equalized learning rate](#equalized_weight)
+        self.weight = EqualizedWeight([out_features, in_features, kernel_size, kernel_size])
+        # $\epsilon$
+        self.eps = eps
+
+    def forward(self, x: torch.Tensor):
+        """
+        * `x` is the input feature map of shape `[batch_size, in_features, height, width]`
+        """
+
+        # Get batch size, height and width
+        b, _, h, w = x.shape
+        
+        # Get [learning rate equalized weights](#equalized_weight)
+        weights = self.weight()[None, :, :, :, :]
+        # $$w`_{i,j,k} = s_i * w_{i,j,k}$$
+        # where $i$ is the input channel, $j$ is the output channel, and $k$ is the kernel index.
+        #
+        # The result has shape `[batch_size, out_features, in_features, kernel_size, kernel_size]`
 
         # Demodulate
         if self.demodulate:
@@ -451,7 +515,7 @@ class DiscriminatorBlock(nn.Module):
         super().__init__()
         # Down-sampling and $1 \times 1$ convolution layer for the residual connection
         self.residual = nn.Sequential(DownSample(),
-                                      EqualizedConv2d(in_features, out_features, kernel_size=1))
+                                      EqualizedConv2d(in_features, out_features, kernel_size=1, padding=0))
 
         # Two $3 \times 3$ convolutions
         self.block = nn.Sequential(
@@ -509,7 +573,7 @@ class MiniBatchStdDev(nn.Module):
         # Calculate the standard deviation for each feature among `group_size` samples
         # $$\mu_{i} = \frac{1}{N} \sum_g x_{g,i} \\
         #   \sigma_{i} = \sqrt{\frac{1}{N} \sum_g (x_{g,i} - \mu_i)^2  + \epsilon}$$
-        std = torch.sqrt(grouped.var(dim=0) + 1e-8)
+        std = torch.sqrt(grouped.var(dim=0) + 1e-5)
         # Get the mean standard deviation
         std = std.mean().view(1, 1, 1, 1)
         # Expand the standard deviation to append to the feature map
@@ -633,7 +697,7 @@ class EqualizedConv2d(nn.Module):
     """
 
     def __init__(self, in_features: int, out_features: int,
-                 kernel_size: int, padding: int = 0):
+                 kernel_size: int, padding: int = 1):
         """
         * `in_features` is the number of features in the input feature map
         * `out_features` is the number of features in the output feature map
@@ -965,9 +1029,9 @@ class StyleGan2(LightningModule):
         return images, w
     
     def configure_optimizers(self):
-        generator_optimizer = optim.Adam(self.generator.parameters(), lr=self.learning_rate, betas=(0, 0.99))
-        discriminator_optimizer = optim.Adam(self.discriminator.parameters(), lr=self.learning_rate, betas=(0, 0.99))
-        mapping_network_optimizer = optim.Adam(self.mapping_network.parameters(), lr=self.mapping_network_learning_rate, betas=(0, 0.99))
+        generator_optimizer = optim.Adam(self.generator.parameters(), lr=self.learning_rate, betas=(0, 0.99), eps=1e-5)
+        discriminator_optimizer = optim.Adam(self.discriminator.parameters(), lr=self.learning_rate, betas=(0, 0.99), eps=1e-5)
+        mapping_network_optimizer = optim.Adam(self.mapping_network.parameters(), lr=self.mapping_network_learning_rate, betas=(0, 0.99), eps=1e-5)
             
         return discriminator_optimizer, generator_optimizer, mapping_network_optimizer
     
@@ -998,7 +1062,9 @@ class StyleGan2(LightningModule):
             real_images.requires_grad_()
         # Discriminator classification for real images
         real_output = self.discriminator(real_images)
-
+        
+        print("nans in output:", torch.sum(torch.isnan(real_output)))
+        
         # Get discriminator loss
         real_loss, fake_loss = self.discriminator_loss(real_output, fake_output)
         disc_loss = real_loss + fake_loss
@@ -1008,7 +1074,7 @@ class StyleGan2(LightningModule):
             # Calculate and log gradient penalty
             gp = self.gradient_penalty(real_images, real_output)
             # Multiply by coefficient and add gradient penalty
-#             print("gp:", gp)
+            print("gp:", gp)
             disc_loss = disc_loss + 0.5 * self.gradient_penalty_coefficient * gp * self.lazy_gradient_penalty_interval
 
         # Compute gradients
