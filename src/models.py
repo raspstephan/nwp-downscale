@@ -610,8 +610,30 @@ class ConvBlock(nn.Module):
             x = F.relu(x)
         x = self.conv(x)
         return x
+    
+class ConvBlock2(nn.Module):
+    def __init__(self, in_channels, channels, kernel_size = 3, norm=None, stride=1, activation='leaky_relu', padding=1):
+        super(ConvBlock2, self).__init__()
+        self.conv = nn.Conv2d(in_channels, channels, kernel_size=kernel_size, padding=padding,
+                stride=stride)
+        self.norm = norm
+        self.activation = activation
+        self.bn = nn.BatchNorm2d(channels)
+        
+    def forward(self, x):
+        
+        x = self.conv(x)
+        
+        if self.activation == 'leaky_relu':
+            x = F.leaky_relu(x, negative_slope=0.2)
+        elif self.activation == 'relu':
+            x = F.relu(x)
+            
+        if self.norm=="batch":
+            x = self.bn(x)
 
-        return block 
+        return x
+
     
 class LeinResBlock(nn.Module):
 
@@ -646,6 +668,38 @@ class LeinResBlock(nn.Module):
         x = x + x_in
         return x
 
+class LeinResBlock2(nn.Module):
+
+    def __init__(self, in_planes=256, planes=256, stride=1, nonlin = 'relu', norm =None):
+        super(LeinResBlock2, self).__init__()
+        self.in_planes = in_planes
+        self.planes = planes
+        self.stride = stride
+        self.nonlin = nonlin
+        self.norm = norm
+        
+        shortcut_modules = []
+        if self.stride>1:
+            shortcut_modules.append(nn.AvgPool2d(self.stride))
+        if (self.planes != self.in_planes):
+                shortcut_modules.append(ConvBlock2(self.in_planes, self.planes, 1, stride=1, 
+                    activation=False, padding=0, norm=self.norm))
+        
+        self.shortcut = nn.Sequential(*shortcut_modules)   
+        self.convblock1 = ConvBlock2(self.in_planes, self.planes, 3, stride=self.stride,
+            norm=self.norm,
+            activation=self.nonlin)
+        self.convblock2 = ConvBlock2(self.planes, self.planes, 3, stride=1,
+            norm=self.norm,
+            activation=self.nonlin)
+        
+    def forward(self, x):
+        x_in = x
+        x = self.convblock1(x)
+        x = self.convblock2(x)
+        x_in = self.shortcut(x_in)
+        x = x + x_in
+        return x
     
             
 
@@ -736,24 +790,24 @@ class LeinGen(nn.Module):
                 nn.init.kaiming_normal_(m.weight.data)
     
 class LeinGen2(nn.Module):
-    def __init__(self, input_channels=1):
+    def __init__(self, input_channels=1, norm=None):
         super(LeinGen2, self).__init__()
-        self.embed = nn.Sequential(nn.Conv2d(input_channels,64, kernel_size=3, padding=1), nn.ReLU(), 
-                                      LeinResBlock(in_planes=64, planes=128, stride=1,  nonlin = 'relu'), 
-                                      LeinResBlock(in_planes=128, planes=255, stride=1, nonlin = 'relu'))
+        self.embed = nn.Sequential(nn.Conv2d(input_channels,64, kernel_size=3, padding=1), nn.ReLU(), #nn.BatchNorm2d(64),
+                                      LeinResBlock(in_planes=64, planes=128, stride=1,  nonlin = 'relu', norm=norm), 
+                                      LeinResBlock(in_planes=128, planes=255, stride=1, nonlin = 'relu', norm=norm))
         
-        self.process = nn.Sequential(LeinResBlock(in_planes=256, planes=256, stride=1,  nonlin = 'relu'), 
-                                      LeinResBlock(in_planes=256, planes=256, stride=1, nonlin = 'relu'), 
+        self.process = nn.Sequential(LeinResBlock(in_planes=256, planes=256, stride=1,  nonlin = 'relu', norm=norm), 
+                                      LeinResBlock(in_planes=256, planes=256, stride=1, nonlin = 'relu', norm=norm), 
                             #         self.b3 = BasicBlock(in_planes=256, planes=256, stride=1, nonlin = 'relu')
                             #         self.b4 = BasicBlock(in_planes=256, planes=256, stride=1, nonlin = 'leaky_relu')
                                         )
-        self.upscale = nn.Sequential(LeinResBlock(in_planes=256, planes=256, stride=1,  nonlin = 'leaky_relu'),
+        self.upscale = nn.Sequential(LeinResBlock(in_planes=256, planes=256, stride=1,  nonlin = 'leaky_relu', norm=norm),
                                      UpSample(2, 'bilinear'),
-                                     LeinResBlock(in_planes=256, planes=128, stride=1,  nonlin = 'leaky_relu'),
+                                     LeinResBlock(in_planes=256, planes=128, stride=1,  nonlin = 'leaky_relu', norm=norm),
                                      UpSample(2, 'bilinear'),
-                                     LeinResBlock(in_planes=128, planes=64, stride=1,  nonlin = 'leaky_relu'),
+                                     LeinResBlock(in_planes=128, planes=64, stride=1,  nonlin = 'leaky_relu', norm=norm),
                                      UpSample(2, 'bilinear'),
-                                     LeinResBlock(in_planes=64, planes=32, stride=1,  nonlin = 'leaky_relu'))
+                                     LeinResBlock(in_planes=64, planes=32, stride=1,  nonlin = 'leaky_relu', norm=norm))
         
         self.final = nn.Conv2d(32,1, kernel_size=3, padding=1)
          
@@ -817,7 +871,50 @@ class LeinDisc(nn.Module):
             if isinstance(m, (nn.Conv2d, nn.Linear)):#, nn.BatchNorm2d)):
 #                 nn.init.normal_(m.weight.data, 0.0, 0.02)
                 nn.init.kaiming_normal_(m.weight.data)
+
+class LeinDisc2(nn.Module):
+    def __init__(self, input_channels=1, nonlin = 'leaky_relu', norm = None):
+        super(LeinDisc2, self).__init__()
+        hr_block = []
+        lr_block = []
+        lr_inplanes = input_channels
+        hr_inplanes = 1
+        for planes in [64, 128, 256]:
+            hr_block.append(LeinResBlock2(in_planes = hr_inplanes, planes=planes, stride=2, nonlin = nonlin, norm=norm))
+            lr_block.append(LeinResBlock2(in_planes = lr_inplanes, planes=planes, stride=1, nonlin = nonlin, norm=norm))
+            lr_inplanes=planes
+            hr_inplanes=planes
+        self.hr_block1 = nn.Sequential(*hr_block)
+        self.lr_block1 = nn.Sequential(*lr_block)
+        self.hr_block2 = nn.Sequential(LeinResBlock2(in_planes=256, planes=256, stride=1, nonlin = nonlin, norm=norm))#, block(in_planes=256, planes=256, stride=1, nonlin = nonlin))
+        self.lr_block2 = nn.Sequential(LeinResBlock2(in_planes=512, planes=256, stride=1, nonlin = nonlin, norm=norm))#,block(in_planes=256, planes=256, stride=1, nonlin = nonlin))
+        self.dense1 = nn.Linear(512, 256)
+        self.dense2 = nn.Linear(256, 1)
+        nn.init.kaiming_normal_(self.dense1.weight, nonlinearity='leaky_relu')
+        nn.init.kaiming_normal_(self.dense2.weight, nonlinearity = 'linear')
+        self.initialize_weights()
+        
+
+    def forward(self, X, y):
+        hr = self.hr_block1(y)
+        lr = self.lr_block1(X)
+        lr = torch.cat((lr,hr), axis=1)
+        hr = self.hr_block2(hr)
+        lr = self.lr_block2(lr)
+        hr = nn.AvgPool2d(16)(hr)
+        lr = nn.AvgPool2d(16)(lr)
+        out = torch.cat((torch.reshape(hr, (hr.shape[0],-1)), torch.reshape(lr, (lr.shape[0], -1))), axis=1)
+        out = F.leaky_relu(self.dense1(out), negative_slope=0.02)
+        out = self.dense2(out)
+        return out
     
+    def initialize_weights(self):
+        # Initializes weights according to the DCGAN paper
+        for m in self.modules():
+            if isinstance(m, (nn.Conv2d, nn.Linear)):#, nn.BatchNorm2d)):
+#                 nn.init.normal_(m.weight.data, 0.0, 0.02)
+                nn.init.kaiming_normal_(m.weight.data)
+
 #     def spectral_norm(self):
 #         for m in self.modules():
 #             if isinstance(m, (nn.Conv2d, nn.Linear, nn.ConvTranspose2d)):#, nn.BatchNorm2d)):
@@ -854,49 +951,7 @@ class LeinGenOld(nn.Module):
 #                 nn.init.normal_(m.weight.data, 0.0, 0.02)
                 nn.init.kaiming_normal_(m.weight.data)
     
-class LeinDisc2(nn.Module):
-    def __init__(self, nonlin = 'leaky_relu'):
-        super(LeinDisc, self).__init__()
-        hr_block = []
-        lr_block = []
-        inplanes = 1
-        for planes in [64, 128, 256]:
-            hr_block.append(BasicBlock(in_planes = inplanes, planes=planes, stride=2, nonlin = nonlin))
-            lr_block.append(BasicBlock(in_planes = inplanes, planes=planes, stride=1, nonlin = nonlin))
-            inplanes=planes
-        self.hr_block1 = nn.Sequential(*hr_block)
-        self.lr_block1 = nn.Sequential(*lr_block)
-        self.hr_block2 = nn.Sequential(BasicBlock(in_planes=256, planes=256, stride=1, nonlin = nonlin))#, block(in_planes=256, planes=256, stride=1, nonlin = nonlin))
-        self.lr_block2 = nn.Sequential(BasicBlock(in_planes=512, planes=256, stride=1, nonlin = nonlin))#,block(in_planes=256, planes=256, stride=1, nonlin = nonlin))
-        self.dense1 = nn.Linear(512, 256)
-        self.dense2 = nn.Linear(256, 1)
-        nn.init.kaiming_normal_(self.dense1.weight, nonlinearity='leaky_relu')
-        nn.init.kaiming_normal_(self.dense2.weight, nonlinearity = 'linear')
-        self.initialize_weights()
-        
-        
 
-    def forward(self, X, y):
-        hr = self.hr_block1(y)
-        lr = self.lr_block1(X)
-#         print(lr.shape)
-#         print(hr.shape)
-        lr = torch.cat((lr,hr), axis=1)
-        hr = self.hr_block2(hr)
-        lr = self.lr_block2(lr)
-        hr = nn.AvgPool2d(16)(hr)
-        lr = nn.AvgPool2d(16)(lr)
-        out = torch.cat((torch.squeeze(hr), torch.squeeze(lr)), axis=1)
-        out = F.leaky_relu(self.dense1(out), negative_slope=0.02)
-        out = self.dense2(out)
-        return out
-    
-    def initialize_weights(self):
-        # Initializes weights according to the DCGAN paper
-        for m in self.modules():
-            if isinstance(m, (nn.Conv2d, nn.ConvTranspose2d)):#, nn.BatchNorm2d)):
-#                 nn.init.normal_(m.weight.data, 0.0, 0.02)
-                nn.init.kaiming_normal_(m.weight.data)
             
         
         
@@ -1910,7 +1965,7 @@ class BaseGAN2(LightningModule):
                 grid = torchvision.utils.make_grid(sample_imgs)
                 self.logger.experiment.add_image('generated_images', grid, self.global_step)
                 if self.input_channels>1:
-                    input_forcasts = self.upsample_input(condition)
+#                     input_forcasts = self.upsample_input(condition)
 #                     print(input_forcasts.view(-1, input_forcasts.shape[2], input_forcasts.shape[3]).unsqueeze(1).shape)
                     grid = torchvision.utils.make_grid(input_forcasts.view(-1, input_forcasts.shape[2], input_forcasts.shape[3]).unsqueeze(1), nrow=self.input_channels)
                 else:
@@ -1983,14 +2038,14 @@ class BaseGAN2(LightningModule):
         
     def configure_optimizers(self):
         if self.opt_hparams['gen_optimiser'] == 'adam':
-            gen_opt = optim.Adam(self.gen.parameters(), lr=self.opt_hparams['gen_lr'], betas=(self.opt_hparams['b1'], self.opt_hparams['b2']), weight_decay=1e-4)
+            gen_opt = optim.Adam(self.gen.parameters(), eps=5e-5, lr=self.opt_hparams['gen_lr'], betas=(self.opt_hparams['b1'], self.opt_hparams['b2']), weight_decay=1e-4)
             
         elif self.opt_hparams['gen_optimiser'] == 'sgd':
             gen_opt = optim.SGD(self.gen.parameters(), lr=self.opt_hparams['gen_lr'], momentum = self.opt_hparams['gen_momentum'])
         else:
             raise NotImplementedError
         if self.opt_hparams['disc_optimiser'] == 'adam':
-            disc_opt = optim.Adam(self.disc.parameters(), lr=self.opt_hparams['disc_lr'], betas=(self.opt_hparams['b1'], self.opt_hparams['b2']))
+            disc_opt = optim.Adam(self.disc.parameters(), eps=5e-5, lr=self.opt_hparams['disc_lr'], betas=(self.opt_hparams['b1'], self.opt_hparams['b2']))
         elif self.opt_hparams['disc_optimiser'] == 'sgd':
             disc_opt = optim.SGD(self.disc.parameters(), lr=self.opt_hparams['disc_lr'], momentum = self.opt_hparams['disc_momentum'])
         else:
@@ -2013,6 +2068,9 @@ class BaseGAN2(LightningModule):
                 dims=['sample','lat', 'lon'],
                 name='tp'
             )
+        
+#         print("preds shape", preds.shape)
+        
         preds = xr.DataArray(
                 preds,
                 dims=['member', 'sample', 'lat', 'lon'],
@@ -2058,6 +2116,7 @@ gens = {
 
 discs = {
     'leindisc':LeinDisc,
+    'leindisc2':LeinDisc2,
     'broadleindisc':BroadLeinDisc, 
     'leinsadisc':LeinSADisc, 
     'broadleinsadisc': BroadLeinSADisc

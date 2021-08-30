@@ -60,7 +60,7 @@ class TiggeMRMSDataset(Dataset):
         self.pure_sr_ratio = pure_sr_ratio
         self.tp_log = tp_log
         self.ensemble_mode = ensemble_mode
-        
+        self.tigge_vars = tigge_vars
         # Open datasets
         self.tigge = xr.merge([
             xr.open_mfdataset(f'{tigge_dir}/{v}/*.nc') for v in tigge_vars
@@ -90,10 +90,13 @@ class TiggeMRMSDataset(Dataset):
             self.tigge['tp'] = log_trans(self.tigge['tp'], tp_log)
             if cat_bins is None:   # No log transform for categorical output
                 self.mrms = log_trans(self.mrms, tp_log)
+        
         if scale:   # Apply min-max scaling
             self._scale(mins, maxs, scale_mrms=True if cat_bins is None else False)
-        self.tigge = self.tigge.to_array()   # Doing this here saves time
-         
+          
+        # Doing this here saves time
+        self.tigge = self.tigge.to_array()
+        
         self.tigge_km = 32 # ds.tigge.lon.diff('lon').max()*100  # Currently hard-coded 
         self.mrms_km = 4
         self.ratio = self.tigge_km // self.mrms_km
@@ -119,15 +122,15 @@ class TiggeMRMSDataset(Dataset):
     def _scale(self, mins, maxs, scale_mrms=True):
         """Apply min-max scaling. Use same scaling for tp in TIGGE and MRMS."""
 
-        # Use min/max if provided, otherwise compute
-        self.mins = mins or self.tigge.min().astype('float32')  
-        self.maxs = maxs or self.tigge.max().astype('float32')
-
-        if (self.cat_bins is None) and (maxs is None):
+        self.mins = mins or self.tigge.min()   # Use min/max if provided, otherwise compute
+        self.maxs = maxs or self.tigge.max()
+        
+        if self.cat_bins is None:
             self.maxs['tp'] = self.mrms.max()   # Make sure to take MRMS max for tp
         self.tigge = (self.tigge - self.mins) / (self.maxs - self.mins)
         if scale_mrms:
             self.mrms = (self.mrms - self.mins.tp) / (self.maxs.tp - self.mins.tp)
+                             
         
     def _crop_times(self):
         """Crop TIGGE and MRMS arrays to where they overlap"""
