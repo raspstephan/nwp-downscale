@@ -72,7 +72,7 @@ def plot_samples_per_input(data, gen, samples, device, save_dir):
     for ax, col in zip(axs[0], cols):
         ax.set_title(col)
     plt.tight_layout()
-    plt.savefig(save_dir+'sample_predictions.png', dpi=200)
+    plt.savefig(save_dir+'sample_predictions.png', dpi=400)
     
     
 def visualise(input_args):

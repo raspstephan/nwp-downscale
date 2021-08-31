@@ -11,10 +11,10 @@ import torchvision.datasets as datasets
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
 
-from src.models import GANs, gens, discs
-# from ilan_src.models import *
-from src.dataloader import *
-from src.utils import *
+# from src.models import GANs, gens, discs
+# # from ilan_src.models import *
+# from src.dataloader import *
+# from src.utils import *
 
 from catalyst.data.sampler import DistributedSamplerWrapper
 
@@ -31,6 +31,7 @@ else:
     
 import json
 import argparse
+import sys
 
 
 
@@ -42,7 +43,8 @@ def parseInputArgs():
 
     parser.add_argument("--experiment_config", type=str,
                         dest="config_path", help='Path to file containing configuration for the experiment')
-
+    
+    parser.add_argument("--ckpt_path", default = None, help= "path to checkpoint to continue training from")
     return parser.parse_args()
 
 input_args = parseInputArgs()
@@ -55,7 +57,17 @@ def train(input_args):
     parser = argparse.ArgumentParser(args)
     parser.set_defaults(**args)
     args, _ = parser.parse_known_args()
-
+    
+    model_dir = args.save_hparams["save_dir"]+args.save_hparams["run_name"]+str(args.save_hparams["run_number"])+"/"
+    
+    print("model_dir:", model_dir)
+    sys.path.append(model_dir)
+    print("sys path:", sys.path)
+    
+    from run_src.models import GANs, gens, discs
+    from run_src.dataloader import TiggeMRMSDataset
+#     from run_src.utils import *
+    
     print("Args loaded")
     # set seed
     torch.manual_seed(args.seed)
@@ -90,8 +102,14 @@ def train(input_args):
     
     print("Data loading complete")
     ## Load Model
-
-    model = GANs[args.gan](**args.gan_hparams)
+    if input_args.ckpt_path:
+        model = GANs[args.gan].load_from_checkpoint(input_args.ckpt_path)
+        model.disc_lr = args.gan_hparams['disc_lr']
+        model.gen_lr = args.gan_hparams['gen_lr']
+        print(model.disc_lr)
+        print(model.gen_lr)
+    else:
+        model = GANs[args.gan](**args.gan_hparams)
 
     ## Define trainer and logging
 
@@ -103,8 +121,19 @@ def train(input_args):
                                              name = args.save_hparams['run_name'], 
                                              version = args.save_hparams['run_number'])
 
-
-    trainer = pl.Trainer(accelerator='ddp', 
+    
+    if input_args.ckpt_path:
+        trainer = pl.Trainer(accelerator='ddp', 
+                         precision=16, gpus = args.train_hparams['gpus'], 
+                         max_epochs = args.train_hparams['epochs'], 
+                         callbacks=[checkpoint_callback], 
+                         replace_sampler_ddp = False, 
+                         check_val_every_n_epoch=20, 
+                         logger = tb_logger, 
+                         resume_from_checkpoint = input_args.ckpt_path
+                        )
+    else:
+        trainer = pl.Trainer(accelerator='ddp', 
                          precision=16, gpus = args.train_hparams['gpus'], 
                          max_epochs = args.train_hparams['epochs'], 
                          callbacks=[checkpoint_callback], 

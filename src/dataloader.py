@@ -64,6 +64,11 @@ class TiggeMRMSDataset(Dataset):
         self.tigge = xr.merge([
             xr.open_mfdataset(f'{tigge_dir}/{v}/*.nc') for v in tigge_vars
         ])  # Merge all TIGGE variables
+               
+        if 'convective_inhibition' in tigge_vars:
+            print("setting nans in convective_inhibition to 0")
+            self.tigge['cin'] = self.tigge['cin'].fillna(0)
+        
         self.tigge['tp'] = self.tigge.tp.diff('lead_time')   # Need to take diff to get 6h accumulation
         self.tigge = self.tigge.sel(lead_time=np.timedelta64(lead_time, 'h'))
         self.mrms = xr.open_mfdataset(f'{mrms_dir}/*.nc').tp   # NOTE: Takes around 30s
@@ -111,9 +116,11 @@ class TiggeMRMSDataset(Dataset):
     
     def _scale(self, mins, maxs, scale_mrms=True):
         """Apply min-max scaling. Use same scaling for tp in TIGGE and MRMS."""
+
         # Use min/max if provided, otherwise compute
         self.mins = mins or self.tigge.min().astype('float32')  
         self.maxs = maxs or self.tigge.max().astype('float32')
+
         if (self.cat_bins is None) and (maxs is None):
             self.maxs['tp'] = self.mrms.max()   # Make sure to take MRMS max for tp
         self.tigge = (self.tigge - self.mins) / (self.maxs - self.mins)

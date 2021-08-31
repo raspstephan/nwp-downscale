@@ -768,7 +768,7 @@ class LeinDisc(nn.Module):
         lr = self.lr_block2(lr)
         hr = nn.AvgPool2d(16)(hr)
         lr = nn.AvgPool2d(16)(lr)
-        out = torch.cat((torch.squeeze(hr), torch.squeeze(lr)), axis=1)
+        out = torch.cat((torch.reshape(hr, (hr.shape[0],-1)), torch.reshape(lr, (lr.shape[0], -1))), axis=1)
         out = F.leaky_relu(self.dense1(out), negative_slope=0.02)
         out = self.dense2(out)
         return out
@@ -784,8 +784,6 @@ class LeinDisc(nn.Module):
 #         for m in self.modules():
 #             if isinstance(m, (nn.Conv2d, nn.Linear, nn.ConvTranspose2d)):#, nn.BatchNorm2d)):
 #                 m = nn.utils.parametrizations.spectral_norm(m)
-    
-    
                                      
                                      
 class LeinGen2(nn.Module):
@@ -994,8 +992,8 @@ class BroadLeinGen(nn.Module):
     def __init__(self, input_channels=1):
         super(BroadLeinGen, self).__init__()
         self.embed = nn.Conv2d(input_channels,255, kernel_size=3, padding=1)
-        self.process = nn.Sequential(LeinResBlock(in_planes=256, planes=256, stride=2,  nonlin = 'relu'), 
-                                     LeinResBlock(in_planes=256, planes=256, stride=2, nonlin = 'relu'), 
+        self.process = nn.Sequential(LeinResBlock(in_planes=255, planes=255, stride=2,  nonlin = 'relu'), 
+                                     LeinResBlock(in_planes=255, planes=255, stride=2, nonlin = 'relu'), 
 #                                      LeinResBlock(in_planes=256, planes=256, stride=2, nonlin = 'relu')
                             #         self.b4 = BasicBlock(in_planes=256, planes=256, stride=1, nonlin = 'leaky_relu')
                                         )
@@ -1007,12 +1005,12 @@ class BroadLeinGen(nn.Module):
                                      UpSample(2, 'bilinear'),
                                      LeinResBlock(in_planes=64, planes=32, stride=1,  nonlin = 'leaky_relu'))
         
-        self.final = nn.Conv2d(32,1, kernel_size=3, padding=1)
+        self.final = nn.Sequential(nn.Conv2d(32,16, kernel_size=3, padding=1), nn.LeakyReLU(0.02), nn.Conv2d(16,1, kernel_size=3, padding=1))
          
     def forward(self, x, noise):
         x = F.relu(self.embed(x))
-        x = torch.cat((x,noise), axis=1)
         x = self.process(x)
+        x = torch.cat((x,noise), axis=1)
 #         print(x.shape)
         x = self.upscale(x)
         x = torch.sigmoid(self.final(x))

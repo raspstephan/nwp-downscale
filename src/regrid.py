@@ -1,4 +1,4 @@
-from fire import Fire
+# from fire import Fire
 import xarray as xr 
 import xesmf as xe
 from glob import glob
@@ -128,5 +128,5 @@ def main(var, path, km, check_exists=True, lats=None, lons=None, mrms=False,
 
 
 
-if __name__ == '__main__':
-    Fire(main)
+# if __name__ == '__main__':
+#     Fire(main)
