@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 from .utils import tqdm, device, to_categorical
 from skimage.measure import block_reduce
+from skimage.transform import resize
 
 def log_trans(x, eps):
     """Log transform with given epsilon. Preserves zeros."""
@@ -29,7 +30,7 @@ class TiggeMRMSDataset(Dataset):
     """
     def __init__(self, tigge_dir, tigge_vars, mrms_dir, lead_time=12, patch_size=512, rq_fn=None, 
                  const_fn=None, const_vars=None, scale=True, data_period=None, first_days=None,
-                 val_days=None, split=None, mins=None, maxs=None, pad_tigge=0, tp_log=None,
+                 val_days=None, split=None, mins=None, maxs=None, pad_tigge=0, pad_tigge_channel = True, tp_log=None,
                  cat_bins=None, pure_sr_ratio=None, dropna=True, ensemble_mode=None):
         """
         tigge_dir: Path to TIGGE data without variable name
@@ -59,11 +60,16 @@ class TiggeMRMSDataset(Dataset):
         self.pure_sr_ratio = pure_sr_ratio
         self.tp_log = tp_log
         self.ensemble_mode = ensemble_mode
-        
+        self.tigge_vars = tigge_vars
         # Open datasets
         self.tigge = xr.merge([
             xr.open_mfdataset(f'{tigge_dir}/{v}/*.nc') for v in tigge_vars
         ])  # Merge all TIGGE variables
+               
+        if 'convective_inhibition' in tigge_vars:
+            print("setting nans in convective_inhibition to 0")
+            self.tigge['cin'] = self.tigge['cin'].fillna(0)
+        
         self.tigge['tp'] = self.tigge.tp.diff('lead_time')   # Need to take diff to get 6h accumulation
         self.tigge = self.tigge.sel(lead_time=np.timedelta64(lead_time, 'h'))
         self.mrms = xr.open_mfdataset(f'{mrms_dir}/*.nc').tp   # NOTE: Takes around 30s
@@ -84,14 +90,18 @@ class TiggeMRMSDataset(Dataset):
             self.tigge['tp'] = log_trans(self.tigge['tp'], tp_log)
             if cat_bins is None:   # No log transform for categorical output
                 self.mrms = log_trans(self.mrms, tp_log)
+        
         if scale:   # Apply min-max scaling
             self._scale(mins, maxs, scale_mrms=True if cat_bins is None else False)
-        self.tigge = self.tigge.to_array()   # Doing this here saves time
-         
+          
+        # Doing this here saves time
+        self.tigge = self.tigge.to_array()
+        
         self.tigge_km = 32 # ds.tigge.lon.diff('lon').max()*100  # Currently hard-coded 
         self.mrms_km = 4
         self.ratio = self.tigge_km // self.mrms_km
         self.pad_tigge = pad_tigge
+        self.pad_tigge_channel = pad_tigge_channel
         self.pad_mrms = self.pad_tigge * self.ratio
         self.patch_tigge = self.patch_size // self.tigge_km
         self.patch_mrms = self.patch_size // self.mrms_km
@@ -111,13 +121,16 @@ class TiggeMRMSDataset(Dataset):
     
     def _scale(self, mins, maxs, scale_mrms=True):
         """Apply min-max scaling. Use same scaling for tp in TIGGE and MRMS."""
+
         self.mins = mins or self.tigge.min()   # Use min/max if provided, otherwise compute
         self.maxs = maxs or self.tigge.max()
+        
         if self.cat_bins is None:
             self.maxs['tp'] = self.mrms.max()   # Make sure to take MRMS max for tp
         self.tigge = (self.tigge - self.mins) / (self.maxs - self.mins)
         if scale_mrms:
             self.mrms = (self.mrms - self.mins.tp) / (self.maxs.tp - self.mins.tp)
+                             
         
     def _crop_times(self):
         """Crop TIGGE and MRMS arrays to where they overlap"""
@@ -199,6 +212,7 @@ class TiggeMRMSDataset(Dataset):
         else:
             lat_slice = slice(lat_idx * self.patch_tigge, (lat_idx+1) * self.patch_tigge + self.pad_tigge*2)
             lon_slice = slice(lon_idx * self.patch_tigge, (lon_idx+1) * self.patch_tigge + self.pad_tigge*2)
+            
         X = self.tigge.isel(
             valid_time=time_idx,
             lat=lat_slice,
@@ -238,6 +252,10 @@ class TiggeMRMSDataset(Dataset):
         if self.cat_bins is not None and not no_cat:
             y = self._categorize(y)
             
+        if self.pad_tigge_channel:
+            X_crop = X[:,self.pad_tigge:self.pad_tigge + self.patch_tigge, self.pad_tigge:self.pad_tigge + self.patch_tigge]
+            X_downsample = resize(X[0:1,:,:], (1, self.patch_tigge, self.patch_tigge))
+            X = np.concatenate((X_crop, X_downsample), axis=0)
         return X.astype(np.float32), y.astype(np.float32)   # [vars, patch, patch]
     
     def _add_const(self, X, lat_slice, lon_slice):

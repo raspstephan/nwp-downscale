@@ -28,7 +28,6 @@ import json
 import argparse
 import sys
 
-
 def parseInputArgs():
 
     parser = argparse.ArgumentParser(
@@ -37,66 +36,68 @@ def parseInputArgs():
 
     parser.add_argument("--eval_config", type=str,
                         dest="config_path", help='Path to file containing configuration for the evaluation')
+    
+    parser.add_argument("--type", type=str, dest="eval_type", default="full_field")
 
     return parser.parse_args()
 
 input_args = parseInputArgs()
 
+def evaluate(input_args):
+    # Load Experiment Args and Hyperparameters
 
-# Load Experiment Args and Hyperparameters
+    args = json.load(open(input_args.config_path))
+    parser = argparse.ArgumentParser(args)
+    parser.set_defaults(**args)
+    args, _ = parser.parse_known_args()
 
-args = json.load(open(input_args.config_path))
-parser = argparse.ArgumentParser(args)
-parser.set_defaults(**args)
-args, _ = parser.parse_known_args()
-
-print("Args loaded")
-
-model_dir = args.save_hparams["save_dir"]+args.save_hparams["run_name"]+str(args.save_hparams["run_number"])+"/"
-
-sys.path.append(model_dir)
-
-from run_src.models import GANs, gens, discs
-from run_src.dataloader import *
-from run_src.utils import *
-from src.evaluation import par_gen_patch_eval, gen_patch_eval
-
-#set seed
-torch.manual_seed(args.seed)
-
-## Load Data and set data params
-ds_test = pickle.load(open(args.data_hparams["test_dataset_path"], "rb"))
-sampler_test = torch.utils.data.SequentialSampler(ds_test)
-dl_test = torch.utils.data.DataLoader(
-    ds_test, batch_size=args.eval_hparams["batch_size"], sampler=sampler_test
-)
-
-print("Loading data ... ")
-
-gan = GANs[args.gan].load_from_checkpoint(args.model_path)
-
-gen = gan.gen
-gen = gen.to(device)
-gen.train(False);
-
-print("Data loading complete")
-
-## Load Model
-
-crps, max_pool_crps, avg_pool_crps, rhist, (weighted_relative_freq, samples), rmse = gen_patch_eval(
-                                        gen, dl_test, args.eval_hparams["num_ens"], ds_test.mins.tp.values, ds_test.maxs.tp.values, ds_test.tp_log, device)
-
-
-metrics = {"crps": crps, 
-           "max_pool_crps": max_pool_crps, 
-           "avg_pool_crps": avg_pool_crps,
-           "rankhist": rhist, 
-           "reliability": (weighted_relative_freq, samples), 
-           "rmse": rmse
-          }
-
-print(metrics)
-
-pickle.dump(metrics, open(model_dir+"/eval_metrics.pkl", "wb"))
-
+    print("Args loaded")
     
+    device = torch.device(f'cuda:{args.gpu}')
+    print("device", device)
+    model_dir = args.save_hparams["save_dir"]+args.save_hparams["run_name"]+str(args.save_hparams["run_number"])+"/"
+
+    sys.path.append(model_dir)
+
+    from run_src.models import GANs
+    from run_src.dataloader import TiggeMRMSDataset
+#     from run_src.utils import *
+    from src.evaluation import par_gen_patch_eval, gen_patch_eval, par_gen_full_field_eval, par_SR_gen_patch_eval
+
+    #set seed
+    torch.manual_seed(args.seed)
+
+    ## Load Data and set data params
+    ds_test = pickle.load(open(args.data_hparams["test_dataset_path"], "rb"))  
+    sampler_test = torch.utils.data.SequentialSampler(ds_test)
+    dl_test = torch.utils.data.DataLoader(
+        ds_test, batch_size=args.eval_hparams["batch_size"], sampler=sampler_test
+    )
+
+    print("Loading data ... ")
+
+    gan = GANs[args.gan].load_from_checkpoint(args.model_path)
+    
+    print("loaded gan")
+    
+    gen = gan.gen
+    gen = gen.to(device)
+    gen.train(False);
+
+    print("Data loading complete")
+#     print("ds test type", type(ds_test))
+    ## Load Model
+    if input_args.eval_type == "patch":
+        if 'super_resolution' in args:
+            metrics = par_SR_gen_patch_eval(gen, dl_test, args.eval_hparams["num_ens"], ds_test.mins.tp.values, ds_test.maxs.tp.values, ds_test.tp_log, device)
+        else:
+            metrics = par_gen_patch_eval(gen, dl_test, args.eval_hparams["num_ens"], ds_test.mins.tp.values, ds_test.maxs.tp.values, ds_test.tp_log, device)    
+    elif input_args.eval_type == "full_field":
+        metrics = par_gen_full_field_eval(gen, ds_test, args.eval_hparams["num_ens"], ds_test.mins.tp.values, ds_test.maxs.tp.values, ds_test.tp_log, device)
+        
+    print(metrics)
+
+    pickle.dump(metrics, open(model_dir+f"/{input_args.eval_type}_eval_metrics.pkl", "wb"))
+
+if __name__ == '__main__':
+    evaluate(input_args)

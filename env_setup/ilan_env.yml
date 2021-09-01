@@ -201,4 +201,6 @@ dependencies:
   - zipp=3.4.1=pyhd8ed1ab_0
   - zlib=1.2.11=h7b6447c_3
   - zstd=1.5.0=ha95c52a_0
+  - tensorboardx=2.2=pyhd8ed1ab_0
+  - dill=0.3.4=pyhd8ed1ab_0
 prefix: /home/ilan/.conda/envs/ilan
