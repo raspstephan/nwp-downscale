@@ -19,7 +19,7 @@ from sklearn.metrics import f1_score
 
 import numpy as np
 import matplotlib.pyplot as plt
-
+import math
 
 
 ######################################
@@ -2220,9 +2220,120 @@ class LeinStyleDisc(nn.Module):
         return out    
     
     
+class PriceStyleGenBlock(nn.Module):
+    """
+    <a id="generator_block"></a>
+    ### Generator Block
+    ![Generator block](generator_block.svg)
+    *<small>$A$ denotes a linear layer.
+    $B$ denotes a broadcast and scaling operation (noise is a single channel).
+    [*toRGB*](#to_rgb) also has a style modulation which is not shown in the diagram to keep it simple.</small>*
+    The generator block consists of two [style blocks](#style_block) ($3 \times 3$ convolutions with style modulation)
+    and an RGB output.
+    """
+
+    def __init__(self, in_features: int, out_features: int):
+        """
+        * `in_features` is the number of features in the input feature map
+        * `out_features` is the number of features in the output feature map
+        """
+        super().__init__()
+
+        self.block = nn.Sequential(Conv2dWeightModulateNoStyle(in_features,out_features, kernel_size=3), nn.LeakyReLU(negative_slope=0.02), 
+                                    Conv2dWeightModulateNoStyle(out_features,out_features, kernel_size=3), nn.LeakyReLU(negative_slope=0.02))
+
+        # *toRGB* layer
+        self.to_greyscale = ToGreyScale(out_features)
+
+    def forward(self, x: torch.Tensor):
+        """
+        * `x` is the input feature map of shape `[batch_size, in_features, height, width]`
+        """
+        x = self.block(x)
+        
+        # Get greyscale image
+        greyscale = self.to_greyscale(x)
+
+        # Return feature map and rgb image
+        return x, greyscale
     
+class ToGreyScale(nn.Module):
+    """
+    <a id="to_rgb"></a>
+    ### To RGB
+    ![To RGB](to_rgb.svg)
+    *<small>$A$ denotes a linear layer.</small>*
+    Generates an RGB image from a feature map using $1 \times 1$ convolution.
+    """
+
+    def __init__(self, features: int):
+        """
+        * `d_latent` is the dimensionality of $w$
+        * `features` is the number of features in the feature map
+        """
+        super().__init__()
+        # Get style vector from $w$ (denoted by $A$ in the diagram) with
+        # an [equalized learning-rate linear layer](#equalized_linear)
+
+        # Weight modulated convolution layer without demodulation
+        self.conv = Conv2dWeightModulateNoStyle(features, 1, kernel_size=1, demodulate=False)
+        # Bias
+        self.bias = nn.Parameter(torch.zeros(1))
+        # Activation function
+        self.activation = nn.LeakyReLU(0.2, True)
+#         self.activation = nn.Sigmoid()
+
+    def forward(self, x: torch.Tensor):
+        """
+        * `x` is the input feature map of shape `[batch_size, in_features, height, width]`
+        * `w` is $w$ with shape `[batch_size, d_latent]`
+        """
+        x = self.conv(x)
+        # Add bias and evaluate activation function
+        return self.activation(x + self.bias[None, :, None, None])
     
+
+class PriceStyleGen(nn.Module):
+    def __init__(self, input_channels=1):
+        super(PriceStyleGen, self).__init__()
+        self.embed = nn.Sequential(Conv2dWeightModulateNoStyle(input_channels,64, kernel_size=3), nn.LeakyReLU(negative_slope=0.02), 
+#                                     Conv2dWeightModulateNoStyle(64,64, kernel_size=3), nn.LeakyReLU(negative_slope=0.02), 
+                                  Conv2dWeightModulateNoStyle(64,128, kernel_size=3), nn.LeakyReLU(negative_slope=0.02), 
+#                                     Conv2dWeightModulateNoStyle(128,128, kernel_size=3), nn.LeakyReLU(negative_slope=0.02),
+                                  Conv2dWeightModulateNoStyle(128,255, kernel_size=3), nn.LeakyReLU(negative_slope=0.02), 
+#                                     Conv2dWeightModulateNoStyle(255,255, kernel_size=3), nn.LeakyReLU(negative_slope=0.02)
+                                  )
+        
+        self.process = nn.ModuleList([PriceStyleGenBlock(256, 256), PriceStyleGenBlock(256, 256)])#, PriceStyleGenBlock(256, 256)])
+ 
+        self.upscale = nn.ModuleList([ #PriceStyleGenBlock(256, 256),
+                                     PriceStyleGenBlock(256, 128),
+                                     PriceStyleGenBlock(128, 64),
+                                     PriceStyleGenBlock(64, 32)])
+        self.upsample = StyleUpSample()
+         
     
+    def sigmoid(self, x):
+        return 1 / (1 + math.exp(-x))
+
+    def forward(self, x, noise):
+        
+        x = self.embed(x)
+        x = torch.cat((x,noise), axis=1)
+        
+        x, greyscale = self.process[0](x)
+        for b in self.process[1:]:
+            x, greyscale_new = b(x)
+            greyscale = greyscale + greyscale_new
+        
+#         x, greyscale_new = self.upscale[0](x)
+#         greyscale = greyscale + greyscale_new
+        for b in self.upscale: #[1:]:
+            x = self.upsample(x)
+            x, greyscale_new = b(x)
+            greyscale = self.upsample(greyscale) + greyscale_new
+        
+        return (1+self.sigmoid(-4))*torch.sigmoid(greyscale - 4) - self.sigmoid(-4)
     
     
 GANs = {
@@ -2238,7 +2349,8 @@ gens = {
     'leinsagen':LeinSAGen, 
     'broadleinsagen':BroadLeinSAGen, 
     'leinstylegen': LeinStyleGen,
-    'leinstylegen2': LeinStyleGen2
+    'leinstylegen2': LeinStyleGen2, 
+    'pricestylegen': PriceStyleGen
 }
 
 discs = {

@@ -21,6 +21,131 @@ from src.regrid import regrid
 Eval Functions
 """
 
+def tigge_interp_patch_eval(dl_test, nens, ds_min, ds_max, tp_log, device):
+    """
+    gen: generator, which takes (forecast, noise) as arguments
+    dl_test: dataloader
+    ds_min and ds_max: the min and max values for unscaling
+    tp_log: for undoing the log scaling
+    """
+    
+    t = TicToc()
+    crps = []
+    rmse = []
+    max_pool_crps = []
+    avg_pool_crps = []
+    rhist = []
+    rels_1 = []
+    rels_4 = []
+    pred_means = []
+    pred_hists = []
+    truth_means = []
+    truth_hists = []
+    preds_fss = []
+    
+    t.tic()
+    num_workers = mp.cpu_count()
+    print("num_workers:", num_workers)
+    pool = Pool(processes=num_workers)
+    t.toc('Setting up the pool took')
+    
+    print(f"Total batches: {len(dl_test)}")
+    def log_result(result):
+        for res in result:
+            crps.append(res[0])
+            max_pool_crps.append(res[1])
+            avg_pool_crps.append(res[2])
+            rmse.append(res[3])
+            rhist.append(res[4])
+            rels_1.append(res[5])
+            rels_4.append(res[6])
+            
+        print("batch complete")
+        print(f"current len of crps {len(crps)}")
+            
+    for batch_idx, (x,y) in enumerate(dl_test):
+        t.tic()
+        x = x.to(device)
+        print(x.shape)
+        preds = F.interpolate(x, size = (x.shape[0],x.shape[1],128, 128), mode='linear').detach().to('cpu').numpy().squeeze()
+        preds = preds.transpose(1,0,2,3)
+        truth = y.numpy().squeeze(1)
+        
+        truth = xr.DataArray(
+                truth,
+                dims=['sample','lat', 'lon'],
+                name='tp'
+            )
+        preds = xr.DataArray(
+                preds,
+                dims=['member', 'sample', 'lat', 'lon'],
+                name='tp'
+            )
+
+        truth = truth * (ds_max - ds_min) + ds_min
+
+        preds = preds * (ds_max - ds_min) + ds_min
+
+        if tp_log:
+            truth = log_retrans(truth, tp_log)
+            preds = log_retrans(preds, tp_log)
+        
+        mean_fss = fss(preds.transpose('sample', 'member', 'lat', 'lon'),truth, threshold = 4, window=25, device=device)
+        
+        preds_fss.append(mean_fss)
+        
+        eps = 1e-6
+        bin_edges = [-eps] + np.linspace(eps, log_retrans(ds_max, tp_log)+eps, 51).tolist()
+        pred_means.append(np.mean(preds.sel(member=0)))
+        pred_hists.append(np.histogram(preds.sel(member=0), bins = bin_edges, density=False)[0])
+        truth_means.append(np.mean(truth))
+        truth_hists.append(np.histogram(truth, bins = bin_edges, density=False)[0])
+        
+        truth_pert = truth + np.random.normal(scale=1e-6, size=truth.shape)
+        preds_pert = preds + np.random.normal(scale=1e-6, size=preds.shape) 
+
+        pool.starmap_async(compute_metrics, [(truth, preds, truth_pert, preds_pert, i) for i in range(x.shape[0])], callback=log_result).wait()
+        t.toc('batch_took')
+        
+        
+
+    rels_1 = xr.concat(rels_1, dim = "patch")
+    weights_1 = rels_1.samples / rels_1.samples.sum(dim="patch")
+    weighted_relative_freq_1 = (weights_1*rels_1.relative_freq).sum(dim="patch")
+    samples_1 = rels_1.samples.sum(dim="patch")
+    forecast_probs_1 = rels_1.forecast_probability
+    
+    rels_4 = xr.concat(rels_4, dim = "patch")
+    weights_4 = rels_4.samples / rels_4.samples.sum(dim="patch")
+    weighted_relative_freq_4 = (weights_4*rels_4.relative_freq).sum(dim="patch")
+    samples_4 = rels_4.samples.sum(dim="patch")
+    forecast_probs_4 = rels_4.forecast_probability
+    
+    rhist = [sum([h[i] for h in rhist]) for i in range(nens+1)]
+    
+    pred_hists = (np.sum(np.array(pred_hists), axis=0), bin_edges)
+    truth_hists = (np.sum(np.array(truth_hists), axis=0), bin_edges)
+    
+    print(f"total in pres hist {np.sum(pred_hists[0])}, total in true hist {np.sum(truth_hists[0])}")
+    
+    metrics = {"crps": np.mean(crps), 
+               "max_pool_crps": np.mean(max_pool_crps), 
+               "avg_pool_crps": np.mean(avg_pool_crps),
+               "rankhist": rhist, 
+               "reliability_1": (weighted_relative_freq_1, forecast_probs_1, samples_1), 
+               "reliability_4": (weighted_relative_freq_4, forecast_probs_4, samples_4), 
+               "rmse": np.mean(rmse), 
+               "true_mean": np.mean(truth_means),
+               "preds_mean": np.mean(pred_means), 
+               "true_hist": truth_hists,
+               "preds_hist": pred_hists, 
+               "fss": np.mean(preds_fss)
+              }
+    
+    
+    return metrics
+
+
 def compute_metrics(truth, preds, truth_pert, preds_pert, sample):
     sample_crps = xs.crps_ensemble(truth.sel(sample=sample), preds.sel(sample=sample)).values
     truth_course = truth.coarsen(lat=4, lon=4)

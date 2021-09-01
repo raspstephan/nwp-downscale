@@ -92,8 +92,8 @@ def train(input_args):
         batch_size = args.train_hparams['batch_size']//args.train_hparams['gpus']
     
     
-    dl_train = torch.utils.data.DataLoader(ds_train, batch_size=batch_size, sampler=sampler_train, num_workers=16)
-    dl_valid = torch.utils.data.DataLoader(ds_valid, batch_size=batch_size, sampler=sampler_valid, num_workers=16)
+    dl_train = torch.utils.data.DataLoader(ds_train, batch_size=batch_size, sampler=sampler_train, num_workers=6)
+    dl_valid = torch.utils.data.DataLoader(ds_valid, batch_size=batch_size, sampler=sampler_valid, num_workers=6)
 
     
     args.gan_hparams['val_hparams']['ds_max'] = ds_train.maxs.tp.values

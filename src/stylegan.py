@@ -384,6 +384,8 @@ class Conv2dWeightModulateNoStyle(nn.Module):
         super().__init__()
         # Number of output features
         self.out_features = out_features
+        self.in_features = in_features
+        self.kernel_size = kernel_size
         # Whether to normalize weights
         self.demodulate = demodulate
         # Padding size
@@ -403,7 +405,8 @@ class Conv2dWeightModulateNoStyle(nn.Module):
         b, _, h, w = x.shape
         
         # Get [learning rate equalized weights](#equalized_weight)
-        weights = self.weight()[None, :, :, :, :]
+        weights = self.weight().unsqueeze(0).expand(b,self.out_features, self.in_features, self.kernel_size, self.kernel_size)
+        
         # $$w`_{i,j,k} = s_i * w_{i,j,k}$$
         # where $i$ is the input channel, $j$ is the output channel, and $k$ is the kernel index.
         #
