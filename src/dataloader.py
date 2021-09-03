@@ -30,8 +30,8 @@ class TiggeMRMSDataset(Dataset):
     """
     def __init__(self, tigge_dir, tigge_vars, mrms_dir, lead_time=12, patch_size=512, rq_fn=None, 
                  const_fn=None, const_vars=None, scale=True, data_period=None, first_days=None,
-                 val_days=None, split=None, mins=None, maxs=None, pad_tigge=0, pad_tigge_channel = True, tp_log=None,
-                 cat_bins=None, pure_sr_ratio=None, dropna=True, ensemble_mode=None):
+                 val_days=None, split=None, mins=None, maxs=None, pad_tigge=0, pad_tigge_channel=False, tp_log=None,
+                 cat_bins=None, pure_sr_ratio=None, dropna=True, ensemble_mode=None, idx_stride=1):
         """
         tigge_dir: Path to TIGGE data without variable name
         tigge_vars: List of TIGGE variables
@@ -61,6 +61,7 @@ class TiggeMRMSDataset(Dataset):
         self.tp_log = tp_log
         self.ensemble_mode = ensemble_mode
         self.tigge_vars = tigge_vars
+        self.idx_stride = idx_stride
         # Open datasets
         self.tigge = xr.merge([
             xr.open_mfdataset(f'{tigge_dir}/{v}/*.nc') for v in tigge_vars
@@ -156,14 +157,24 @@ class TiggeMRMSDataset(Dataset):
         self.tigge = self.tigge.sel(valid_time=self.overlap_times)
         
     def _setup_indices(self):
-        """Create a list of indices containing (time, lat_idx, lon_idx). _idx is the patch index."""
-        # Account for padding on each side
-        nlat = (len(self.tigge.lat) - 2*self.pad_tigge)  // self.patch_tigge
-        nlon = (len(self.tigge.lon) - 2*self.pad_tigge) // self.patch_tigge
-        # This creates indices with (lat_idx, lon_idx)
-        idxs = np.array([g.flatten() for g in np.mgrid[:nlat, :nlon]]).T
+        """Create a list of indices containing (time, lat_idx, lon_idx). _idx is the TIGGE index, bottom left."""
+        # I do not account for differences in the extent of MRMS and TIGGE for now. 
+        # Fine for current settings, but could be problematic later.
+        # idxs are TIGGE idxs
+        idxs = np.mgrid[self.pad_tigge:len(self.tigge.lat) - self.patch_tigge - self.pad_tigge:self.idx_stride, 
+                        self.pad_tigge:len(self.tigge.lon) - self.patch_tigge - self.pad_tigge:self.idx_stride]
+        idxs = np.array([g.flatten() for g in idxs]).T
         if hasattr(self, 'rqmask'):   # Only take indices where radar coverage is available
-            idxs = np.array([r for r in idxs if self.rqmask.isel(lat=r[0], lon=r[1])])
+            idxs = np.array([r for r in idxs if self.rqmask.isel(lat=r[0]*self.ratio, lon=r[1]*self.ratio)])
+        
+#         # Account for padding on each side
+#         nlat = (len(self.tigge.lat) - 2*self.pad_tigge)  // self.patch_tigge
+#         nlon = (len(self.tigge.lon) - 2*self.pad_tigge) // self.patch_tigge
+#         # This creates indices with (lat_idx, lon_idx)
+#         idxs = np.array([g.flatten() for g in np.mgrid[:nlat, :nlon]]).T
+#         if hasattr(self, 'rqmask'):   # Only take indices where radar coverage is available
+#             idxs = np.array([r for r in idxs if self.rqmask.isel(lat=r[0], lon=r[1])])
+
         # Now add time indices
         self.ntime = len(self.overlap_times)
         self.idxs = np.concatenate([
@@ -174,10 +185,17 @@ class TiggeMRMSDataset(Dataset):
     
     def _create_rqmask(self, rq_fn):
         """Coarsen radar mask to patch and check for full coverage"""
-        rq = xr.open_dataarray(rq_fn)
+        rq = xr.open_dataarray(rq_fn).load()
         # Account for padding
-        rq = rq.isel(lat=slice(self.pad_mrms, -self.pad_mrms or None), lon=slice(self.pad_mrms, -self.pad_mrms or None))
-        self.rqmask = rq.coarsen(lat=self.patch_mrms, lon=self.patch_mrms, boundary='trim').min() >= 0
+#         rq = rq.isel(lat=slice(self.pad_mrms, -self.pad_mrms or None), lon=slice(self.pad_mrms, -self.pad_mrms or None))
+#         self.rqmask = rq.coarsen(lat=self.patch_mrms, lon=self.patch_mrms, boundary='trim').min() >= 0
+        # RQ mask checks for validity of patch indexed by lower left coordinate
+        # Note: lat is oriented reversele, so in "real" coords it's the upper left corner
+        self.rqmask = (rq[::-1, ::-1].rolling(
+            {'lat': self.patch_mrms}, min_periods=1
+        ).min().rolling(
+            {'lon': self.patch_mrms}, min_periods=1
+        ).min() >=0)[::-1, ::-1]
         
     def __len__(self):
         return len(self.idxs)
@@ -210,9 +228,10 @@ class TiggeMRMSDataset(Dataset):
             lat_slice = slice(0, None)
             lon_slice = slice(0, None)
         else:
-            lat_slice = slice(lat_idx * self.patch_tigge, (lat_idx+1) * self.patch_tigge + self.pad_tigge*2)
-            lon_slice = slice(lon_idx * self.patch_tigge, (lon_idx+1) * self.patch_tigge + self.pad_tigge*2)
-            
+#             lat_slice = slice(lat_idx * self.patch_tigge, (lat_idx+1) * self.patch_tigge + self.pad_tigge*2)
+#             lon_slice = slice(lon_idx * self.patch_tigge, (lon_idx+1) * self.patch_tigge + self.pad_tigge*2)
+            lat_slice = slice(lat_idx-self.pad_tigge, lat_idx + self.patch_tigge + self.pad_tigge)
+            lon_slice = slice(lon_idx-self.pad_tigge, lon_idx + self.patch_tigge + self.pad_tigge)
         X = self.tigge.isel(
             valid_time=time_idx,
             lat=lat_slice,
@@ -234,14 +253,16 @@ class TiggeMRMSDataset(Dataset):
             lat_slice = slice(0, len(self.tigge.lat) * self.ratio)
             lon_slice = slice(0, len(self.tigge.lon) * self.ratio)
         else:
-            lat_slice = slice(
-                lat_idx * self.patch_mrms + self.pad_mrms, 
-                (lat_idx+1) * self.patch_mrms + self.pad_mrms
-            )
-            lon_slice = slice(
-                lon_idx * self.patch_mrms + self.pad_mrms, 
-                (lon_idx+1) * self.patch_mrms + self.pad_mrms
-            )
+#             lat_slice = slice(
+#                 lat_idx * self.patch_mrms + self.pad_mrms, 
+#                 (lat_idx+1) * self.patch_mrms + self.pad_mrms
+#             )
+#             lon_slice = slice(
+#                 lon_idx * self.patch_mrms + self.pad_mrms, 
+#                 (lon_idx+1) * self.patch_mrms + self.pad_mrms
+#             )
+            lat_slice = slice(lat_idx * self.ratio, lat_idx * self.ratio + self.patch_mrms)
+            lon_slice = slice(lon_idx * self.ratio, lon_idx * self.ratio + self.patch_mrms)
         y = self.mrms.isel(
             time=time_idx,
             lat=lat_slice,
