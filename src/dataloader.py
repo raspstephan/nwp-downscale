@@ -321,13 +321,24 @@ class TiggeMRMSDataset(Dataset):
         # weights = np.clip(mean_precip, 0.01, 0.1)
 
         if self.tp_log: threshold = log_trans(threshold, self.tp_log)
+        assert compute_on_X == False, 'Not implemented.'
+        
+        coverage = (self.mrms > threshold)[:, ::-1, ::-1].rolling(
+            lat=self.patch_mrms
+        ).mean().rolling(
+            lon=self.patch_mrms
+        ).mean()[:, ::-1, ::-1]
+        
+        mrms_idxs = np.copy(self.idxs)
+        mrms_idxs[:, 1:] *= self.ratio
+        coverage = coverage.values[tuple(mrms_idxs.T)]
 
-        coverage = []
-        for idx in range(len(self.idxs)):
-            X, y = self.__getitem__(idx, no_cat=True)
-            if compute_on_X: y = X
-            y = y > threshold
-            coverage.append(y.mean())
+#         coverage = []
+#         for idx in range(len(self.idxs)):
+#             X, y = self.__getitem__(idx, no_cat=True)
+#             if compute_on_X: y = X
+#             y = y > threshold
+#             coverage.append(y.mean())
         scale = max_weight - min_weight
         x = 1-(np.array(coverage)-1)**exp
         weights = min_weight + x * scale
@@ -340,7 +351,7 @@ class TiggeMRMSDataset(Dataset):
         # # Get weight for each sample
         # bin_idxs = np.digitize(coverage, bins) - 1
         # weights = bin_weight[bin_idxs]
-        return weights
+        return weights #, coverage
 
     def get_settings(self): 
         """returns key properties as pandas table"""
