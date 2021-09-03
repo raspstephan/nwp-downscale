@@ -72,7 +72,7 @@ def plot_samples_per_input(data, gen, samples, device, save_dir):
     for ax, col in zip(axs[0], cols):
         ax.set_title(col)
     plt.tight_layout()
-    plt.savefig(save_dir+'sample_predictions.png', dpi=400)
+    plt.savefig(save_dir+'sample_predictions.png', dpi=200)
     
     
 def visualise(input_args):
@@ -100,7 +100,8 @@ def visualise(input_args):
     ## Load Data and set data params
     ds_test = pickle.load(open(args.data_hparams["test_dataset_path"], "rb"))
     
-    sample_indices = pickle.load(open("./sample_indices.pkl", 'rb'))
+#     sample_indices = pickle.load(open("./sample_indices.pkl", 'rb'))
+    sample_indices = np.random.choice(100, size = 40, replace=False)
     ds_test = torch.utils.data.Subset(ds_test, sample_indices)
     
     print("Loading data ... ")
