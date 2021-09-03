@@ -106,9 +106,11 @@ def main(var, start_month, stop_month, dir, ensemble=False, members=50, lead_tim
                 request['type'] = 'pf'
 
             server.retrieve(request)
-
+            
+            print('Converting to nc')
             crop_to_nc(fn, lats, lons, var)
             if delete_grib:
+                print('Deleting', fn)
                 os.remove(fn)
 
         except APIException:
