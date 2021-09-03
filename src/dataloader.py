@@ -267,9 +267,10 @@ class TiggeMRMSDataset(Dataset):
             time=time_idx,
             lat=lat_slice,
             lon=lon_slice
-        ).values[None]  # Add dimension for channel
+        ).values[None].astype(np.float32)  # Add dimension for channel
         if self.pure_sr_ratio:
             X = self._make_sr_X(y)
+#         import pdb; pdb.set_trace()
         if self.cat_bins is not None and not no_cat:
             y = self._categorize(y)
             
@@ -277,7 +278,7 @@ class TiggeMRMSDataset(Dataset):
             X_crop = X[:,self.pad_tigge:self.pad_tigge + self.patch_tigge, self.pad_tigge:self.pad_tigge + self.patch_tigge]
             X_downsample = resize(X[0:1,:,:], (1, self.patch_tigge, self.patch_tigge))
             X = np.concatenate((X_crop, X_downsample), axis=0)
-        return X.astype(np.float32), y.astype(np.float32)   # [vars, patch, patch]
+        return X.astype(np.float32), y   # [vars, patch, patch]
     
     def _add_const(self, X, lat_slice, lon_slice):
         """Add constants to X"""
