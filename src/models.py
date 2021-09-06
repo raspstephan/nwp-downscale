@@ -2100,6 +2100,89 @@ class BaseGAN2(LightningModule):
         
         return crps
     
+    
+
+class Corrector(nn.Module):
+    def __init__(self, input_channels=1, norm=None):
+        super(Corrector, self).__init__()
+        self.embed = nn.Sequential(nn.Conv2d(input_channels,64, kernel_size=3, padding=1), nn.ReLU(),
+                                      LeinResBlock(in_planes=64, planes=128, stride=1,  nonlin = 'relu', norm=norm), 
+                                      LeinResBlock(in_planes=128, planes=256, stride=1, nonlin = 'relu', norm=norm))
+        
+        self.process = nn.Sequential(LeinResBlock(in_planes=256, planes=256, stride=1,  nonlin = 'relu', norm=norm), 
+                                      LeinResBlock(in_planes=256, planes=256, stride=1, nonlin = 'relu', norm=norm), 
+                                    LeinResBlock(in_planes=256, planes=256, stride=1, nonlin = 'relu', norm=norm)
+                                    )
+        
+        self.final = nn.Conv2d(256,1, kernel_size=3, padding=1)
+         
+        self.initialize_weights()
+        
+    def forward(self, x):
+        x = self.embed(x)
+        x = self.process(x)
+        x = 1.01*torch.sigmoid(self.final(x)) - 0.005
+#         x = F.relu(self.final(x))
+        return x
+    
+    def initialize_weights(self):
+        # Initializes weights according to the DCGAN paper
+        for m in self.modules():
+            if isinstance(m, (nn.Conv2d, nn.ConvTranspose2d)):#, nn.BatchNorm2d)):
+#                 nn.init.normal_(m.weight.data, 0.0, 0.02)
+                nn.init.kaiming_normal_(m.weight.data)
+    
+
+    
+class CheckCorrector(LightningModule):
+    def __init__(self, input_channels = 6, cond_idx = 0, real_idx = 1): 
+        super().__init__()
+        self.cond_idx =  cond_idx
+        self.real_idx = real_idx
+        self.corrector = Corrector(input_channels=input_channels)
+        self.downsample = F.interpolate
+#         self.loss = nn.MSELoss()
+        self.loss = nn.L1Loss()
+        self.l1_lambda = 0.0000
+              
+    def forward(self, condition, noise):
+        return self.gen(condition, noise)
+    
+    
+    def training_step(self, batch, batch_idx):
+
+        condition, real = batch[self.cond_idx], batch[self.real_idx]
+        
+        real = self.downsample(real, scale_factor = 0.125, mode = 'bilinear', align_corners = False)
+        corrected = self.corrector(condition)
+        
+        loss = self.loss(real, corrected) #+ self.l1_lambda*torch.linalg.norm(corrected.view(-1), 1)
+        
+        self.log('loss', loss, on_epoch=True, on_step=True, prog_bar=True, logger=True)
+        
+        return loss
+    
+    def validation_step(self, batch, batch_idx):
+
+        condition, real = batch[self.cond_idx], batch[self.real_idx]
+        
+        real = self.downsample(real, scale_factor = 0.125, mode = 'bilinear', align_corners = False)
+        corrected = self.corrector(condition)
+        
+        l1error = F.l1_loss(real, corrected)
+        forecast_l1error = F.l1_loss(real, condition)
+        
+        self.log('val_loss', l1error, on_epoch=True, on_step=True, prog_bar=True, logger=True)
+        self.log('forecast_loss', forecast_l1error, on_epoch=True, on_step=True, prog_bar=True, logger=True)
+        self.log('our_error_minus_forecast_error', l1error - forecast_l1error, on_epoch=True, on_step=True, prog_bar=True, logger=True)
+        
+    def configure_optimizers(self):
+        opt = optim.Adam(self.corrector.parameters(), eps=5e-5, lr=5e-5, betas=(0,0.9), weight_decay=1e-4)
+        return opt
+
+        
+        
+    
 GANs = {
     'base':BaseGAN, 
     'wgan-gp':WGANGP, 
