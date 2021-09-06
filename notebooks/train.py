@@ -82,11 +82,14 @@ def train(input_args):
     ds_valid = pickle.load(open(args.data_hparams['valid_dataset_path'], "rb"))
 
     sampler_train = torch.utils.data.WeightedRandomSampler(ds_train.compute_weights(), len(ds_train))
-    sampler_train = DistributedSamplerWrapper(sampler_train, num_replicas = args.train_hparams['gpus'], rank = 0)
+    sampler_train = DistributedSamplerWrapper(sampler_train, num_replicas = len(args.train_hparams['gpus']) if type(args.train_hparams['gpus'])==list else  args.train_hparams['gpus'], rank = 0)
     sampler_valid = torch.utils.data.WeightedRandomSampler(ds_valid.compute_weights(), len(ds_valid))
-    sampler_valid = DistributedSamplerWrapper(sampler_valid, num_replicas = args.train_hparams['gpus'], rank = 0)
+    sampler_valid = DistributedSamplerWrapper(sampler_valid, num_replicas = len(args.train_hparams['gpus']) if type(args.train_hparams['gpus'])==list else  args.train_hparams['gpus'], rank = 0)
     
-    batch_size = args.train_hparams['batch_size']//args.train_hparams['gpus']
+    if type(args.train_hparams['gpus']) == list:
+        batch_size = args.train_hparams['batch_size']//len(args.train_hparams['gpus'])
+    else:
+        batch_size = args.train_hparams['batch_size']//args.train_hparams['gpus']
     
     
     dl_train = torch.utils.data.DataLoader(ds_train, batch_size=batch_size, sampler=sampler_train, num_workers=6)
