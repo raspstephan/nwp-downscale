@@ -2159,6 +2159,10 @@ class CheckCorrector(LightningModule):
         loss = self.loss(real, corrected) #+ self.l1_lambda*torch.linalg.norm(corrected.view(-1), 1)
         
         self.log('loss', loss, on_epoch=True, on_step=True, prog_bar=True, logger=True)
+        l1error = F.l1_loss(real, corrected)
+        forecast_l1error = F.l1_loss(real, condition[:, 0:1, :, :])
+        self.log('forecast_loss', forecast_l1error, on_epoch=True, on_step=True, prog_bar=True, logger=True)
+        self.log('our_error_minus_forecast_error', l1error - forecast_l1error, on_epoch=True, on_step=True, prog_bar=True, logger=True)
         
         return loss
     
@@ -2170,11 +2174,11 @@ class CheckCorrector(LightningModule):
         corrected = self.corrector(condition)
         
         l1error = F.l1_loss(real, corrected)
-        forecast_l1error = F.l1_loss(real, condition)
+        forecast_l1error = F.l1_loss(real, condition[:, 0:1, :, :])
         
-        self.log('val_loss', l1error, on_epoch=True, on_step=True, prog_bar=True, logger=True)
-        self.log('forecast_loss', forecast_l1error, on_epoch=True, on_step=True, prog_bar=True, logger=True)
-        self.log('our_error_minus_forecast_error', l1error - forecast_l1error, on_epoch=True, on_step=True, prog_bar=True, logger=True)
+        self.log('val_loss', l1error, on_step=True, prog_bar=True, logger=True)
+        self.log('forecast_loss', forecast_l1error, on_step=True, prog_bar=True, logger=True)
+        self.log('our_error_minus_forecast_error', l1error - forecast_l1error, on_step=True, prog_bar=True, logger=True)
         
     def configure_optimizers(self):
         opt = optim.Adam(self.corrector.parameters(), eps=5e-5, lr=5e-5, betas=(0,0.9), weight_decay=1e-4)

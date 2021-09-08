@@ -4,6 +4,7 @@ from torch import nn
 from pytorch_lightning.core.lightning import LightningModule
 import pytorch_lightning as pl
 from pytorch_lightning import loggers as pl_loggers
+from pytorch_lightning.plugins import DDPPlugin
 
 import torch.optim as optim
 import torchvision
@@ -78,11 +79,14 @@ def train(input_args):
     ds_valid = pickle.load(open(args.data_hparams['valid_dataset_path'], "rb"))
 
     sampler_train = torch.utils.data.WeightedRandomSampler(ds_train.compute_weights(), len(ds_train))
-    sampler_train = DistributedSamplerWrapper(sampler_train, num_replicas = args.train_hparams['gpus'], rank = 0)
+    sampler_train = DistributedSamplerWrapper(sampler_train, num_replicas = len(args.train_hparams['gpus']) if type(args.train_hparams['gpus'])==list else  args.train_hparams['gpus'], rank = 0)
     sampler_valid = torch.utils.data.WeightedRandomSampler(ds_valid.compute_weights(), len(ds_valid))
-    sampler_valid = DistributedSamplerWrapper(sampler_valid, num_replicas = args.train_hparams['gpus'], rank = 0)
+    sampler_valid = DistributedSamplerWrapper(sampler_valid, num_replicas = len(args.train_hparams['gpus']) if type(args.train_hparams['gpus'])==list else  args.train_hparams['gpus'], rank = 0)
     
-    batch_size = args.train_hparams['batch_size']//args.train_hparams['gpus']
+    if type(args.train_hparams['gpus']) == list:
+        batch_size = args.train_hparams['batch_size']//len(args.train_hparams['gpus'])
+    else:
+        batch_size = args.train_hparams['batch_size']//args.train_hparams['gpus']
     
     dl_train = torch.utils.data.DataLoader(ds_train, batch_size=batch_size, sampler=sampler_train, num_workers=6)
     dl_valid = torch.utils.data.DataLoader(ds_valid, batch_size=batch_size, sampler=sampler_valid, num_workers=6)
@@ -98,7 +102,8 @@ def train(input_args):
 
     save_dir = args.save_hparams['save_dir']
 
-    checkpoint_callback = pl.callbacks.ModelCheckpoint(dirpath=save_dir+args.save_hparams['run_name']+str(args.save_hparams['run_number']) + '/')
+    checkpoint_callback = pl.callbacks.ModelCheckpoint(dirpath=save_dir+args.save_hparams['run_name']+str(args.save_hparams['run_number']) + '/',
+                                                       every_n_train_steps = 5000)
     
     tb_logger = pl_loggers.TensorBoardLogger(save_dir = '../logs/',
                                              name = args.save_hparams['run_name'], 
@@ -121,8 +126,8 @@ def train(input_args):
                          max_epochs = args.train_hparams['epochs'], 
                          callbacks=[checkpoint_callback], 
                          replace_sampler_ddp = False, 
-                         check_val_every_n_epoch=20, 
-                         logger = tb_logger, 
+                         logger = tb_logger,
+                         plugins=DDPPlugin(find_unused_parameters=False)
 #                          auto_select_gpus=True
                         )
                          
