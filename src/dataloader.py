@@ -319,7 +319,6 @@ class TiggeMRMSDataset(Dataset):
         #     X, y = self.__getitem__(idx, no_cat=True)
         #     mean_precip.append(y.mean())
         # weights = np.clip(mean_precip, 0.01, 0.1)
-        import pdb; pdb.set_trace()
         if self.tp_log: 
             threshold = log_trans(threshold, self.tp_log)
             if self.cat_bins is None:
