@@ -89,11 +89,11 @@ class TiggeMRMSDataset(Dataset):
         self.tigge.load(); self.mrms.load()   # Load datasets into RAM
         if tp_log:
             self.tigge['tp'] = log_trans(self.tigge['tp'], tp_log)
-            if cat_bins is None:   # No log transform for categorical output
+            if self.cat_bins is None:   # No log transform for categorical output
                 self.mrms = log_trans(self.mrms, tp_log)
         
         if scale:   # Apply min-max scaling
-            self._scale(mins, maxs, scale_mrms=True if cat_bins is None else False)
+            self._scale(mins, maxs, scale_mrms=True if self.cat_bins is None else False)
           
         # Doing this here saves time
         self.tigge = self.tigge.to_array()
@@ -319,8 +319,11 @@ class TiggeMRMSDataset(Dataset):
         #     X, y = self.__getitem__(idx, no_cat=True)
         #     mean_precip.append(y.mean())
         # weights = np.clip(mean_precip, 0.01, 0.1)
-
-        if self.tp_log: threshold = log_trans(threshold, self.tp_log)
+        import pdb; pdb.set_trace()
+        if self.tp_log: 
+            threshold = log_trans(threshold, self.tp_log)
+            if self.cat_bins is None:
+                threshold = threshold / self.maxs.tp
         assert compute_on_X == False, 'Not implemented.'
         
         coverage = (self.mrms > threshold)[:, ::-1, ::-1].rolling(
