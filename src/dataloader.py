@@ -391,4 +391,32 @@ def create_valid_predictions(model, ds_valid):
     )
     return preds
 
+import os
 
+class TiggeMRMSPatchLoadDataset(Dataset):
+    """ PyTorch Dataset for TIGGE MRMS pairing.
+    
+    Returns TiggeMRMSDataset object. 
+    
+    self.idxs: numpy array with three columns: 
+        [first, second, third] column corresponds to
+        [time,  lat,    lon  ] index of the patches. 
+        The time-idx value corresponds to the time given by the overlap_times array.
+
+            
+    """
+    def __init__(self, root_dir):
+        self.root_dir = root_dir
+        
+    def __len__(self):
+        xdir = self.root_dir+'/x/'
+        return len([name for name in os.listdir(xdir) if os.path.join(xdir, name)])
+    
+    def __getitem__(self, idx):
+        x = np.load(self.root_dir+f'/x/x_{idx}.npz')['tp']
+        y = np.load(self.root_dir+f'/y/y_{idx}.npz')['mrms']
+        
+        return x,y
+    
+    def compute_weights(self):
+        return np.array([0.02 for _ in range(self.__len__())])
