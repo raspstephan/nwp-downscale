@@ -2142,9 +2142,15 @@ class CheckCorrector(LightningModule):
         self.corrector = Corrector(input_channels=input_channels)
         self.downsample = F.interpolate
 #         self.loss = nn.MSELoss()
-        self.loss = nn.L1Loss()
+        self.l1loss = nn.L1Loss()
         self.l1_lambda = 0.0000
+        self.fss_window = 4
+        self.fss_lambda = 0.1
+        self.fss_pool = nn.AvgPool2d(kernel_size=self.fss_window, padding=0, stride=1)
               
+    def loss(self, real, corrected):
+        return self.l1loss(real, corrected) - self.fss_lambda*self.fss(corrected, real, threshold = 0.1)
+    
     def forward(self, condition, noise):
         return self.gen(condition, noise)
     
@@ -2159,10 +2165,12 @@ class CheckCorrector(LightningModule):
         loss = self.loss(real, corrected) #+ self.l1_lambda*torch.linalg.norm(corrected.view(-1), 1)
         
         self.log('loss', loss, on_epoch=True, on_step=True, prog_bar=True, logger=True)
-        l1error = F.l1_loss(real, corrected)
-        forecast_l1error = F.l1_loss(real, condition[:, 0:1, :, :])
-        self.log('forecast_loss', forecast_l1error, on_epoch=True, on_step=True, prog_bar=True, logger=True)
-        self.log('our_error_minus_forecast_error', l1error - forecast_l1error, on_epoch=True, on_step=True, prog_bar=True, logger=True)
+        
+        if self.global_step %100 == 0:
+            l1error = F.l1_loss(real, corrected)
+            forecast_l1error = F.l1_loss(real, condition[:, 0:1, :, :])
+            self.log('forecast_loss', forecast_l1error, on_epoch=True, on_step=True, prog_bar=True, logger=True)
+            self.log('our_error_minus_forecast_error', l1error - forecast_l1error, on_epoch=True, on_step=True, prog_bar=True, logger=True)
         
         return loss
     
@@ -2176,9 +2184,45 @@ class CheckCorrector(LightningModule):
         l1error = F.l1_loss(real, corrected)
         forecast_l1error = F.l1_loss(real, condition[:, 0:1, :, :])
         
-        self.log('val_loss', l1error, on_step=True, prog_bar=True, logger=True)
-        self.log('forecast_loss', forecast_l1error, on_step=True, prog_bar=True, logger=True)
-        self.log('our_error_minus_forecast_error', l1error - forecast_l1error, on_step=True, prog_bar=True, logger=True)
+        self.log('val_loss', l1error, on_epoch=True, prog_bar=True, logger=True)
+        self.log('forecast_loss', forecast_l1error, on_epoch=True, prog_bar=True, logger=True)
+        self.log('our_error_minus_forecast_error', l1error - forecast_l1error, on_epoch=True, prog_bar=True, logger=True)
+        
+        forecast_fss_10 = self.fss(condition, real, threshold = 0.1)
+        forecast_fss_50 = self.fss(condition, real, threshold = 0.5)
+        corrected_fss_10 = self.fss(corrected, real, threshold = 0.1)
+        corrected_fss_50 = self.fss(corrected, real, threshold = 0.5)
+        
+        self.log('forecast_fss_1/10', forecast_fss_10, on_epoch=True, prog_bar=True, logger=True)
+        self.log('forecast_fss_5/10', forecast_fss_50, on_epoch=True, prog_bar=True, logger=True)
+        self.log('corrected_fss_1/10', corrected_fss_10, on_epoch=True, prog_bar=True, logger=True)
+        self.log('corrected_fss_5/10', forecast_fss_50, on_epoch=True, prog_bar=True, logger=True)
+        
+    def fss(self, x,y,threshold):
+        c= 200
+        x_mask = torch.sigmoid(c*(x - threshold))
+        y_mask = torch.sigmoid(c*(y - threshold))
+        
+        y_out = self.fss_pool(y_mask)
+        x_out = self.fss_pool(x_mask[:, 0:1, :, :])
+        mse_sample = torch.mean(torch.square(x_out - y_out), dim=[1,2,3])    
+        mse_ref = torch.mean(torch.square(x_out), dim=[1,2,3]) +  torch.mean(torch.square(y_out), dim=[1,2,3])   
+        fss = 1 - torch.divide(mse_sample, mse_ref)
+        
+        return torch.mean(fss[torch.isfinite(fss)])
+    
+#         mse = torch.zeros(len(x_mask), device=self.device)
+#         for sample in range(len(x_mask)):
+#             y_out = self.fss_conv(y_mask[sample].unsqueeze(0).type(torch.half))/window_size
+#             x_out = self.fss_conv(x_mask[sample, 0:1, :, :].unsqueeze(0).type(torch.half))/window_size
+#             mse_sample = torch.mean(torch.square(x_out - y_out))    
+#             mse_ref = torch.mean(torch.square(x_out)) +  torch.mean(torch.square(y_out))
+#             if mse_ref == 0:
+#                 continue
+#             fss_sample = 1 - (mse_sample / mse_ref)
+#             mse[sample] = fss_sample
+            
+#         return torch.mean(mse)
         
     def configure_optimizers(self):
         opt = optim.Adam(self.corrector.parameters(), eps=5e-5, lr=5e-5, betas=(0,0.9), weight_decay=1e-4)

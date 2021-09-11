@@ -243,6 +243,14 @@ class TiggeMRMSDataset(Dataset):
         if self.ensemble_mode == 'random':
             member_idx = np.random.choice(self.tigge.member)
             X = X.sel(member=member_idx)
+            
+        if self.ensemble_mode == 'stack_tp_only':
+            X = xr.concat([X.rename({'variable': 'raw_variable'}).sel(raw_variable='tp').stack(variable=['member']).transpose(
+                'variable', 'lat', 'lon'), 
+           X.sel(variable=[i for i in X.coords['variable'].values if i!='tp'], member=0).transpose(
+                'variable', 'lat', 'lon')], 
+          'variable')
+            
         X = X.values
         if hasattr(self, 'const'):  # Add constants
             X = self._add_const(X, lat_slice, lon_slice)

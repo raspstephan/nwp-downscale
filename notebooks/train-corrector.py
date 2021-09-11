@@ -88,8 +88,8 @@ def train(input_args):
     else:
         batch_size = args.train_hparams['batch_size']//args.train_hparams['gpus']
     
-    dl_train = torch.utils.data.DataLoader(ds_train, batch_size=batch_size, sampler=sampler_train, num_workers=6)
-    dl_valid = torch.utils.data.DataLoader(ds_valid, batch_size=batch_size, sampler=sampler_valid, num_workers=6)
+    dl_train = torch.utils.data.DataLoader(ds_train, batch_size=batch_size, sampler=sampler_train, num_workers=6, pin_memory=True)
+    dl_valid = torch.utils.data.DataLoader(ds_valid, batch_size=batch_size, sampler=sampler_valid, num_workers=6, pin_memory=True)
 
     del ds_train
     del ds_valid
@@ -127,7 +127,7 @@ def train(input_args):
                          callbacks=[checkpoint_callback], 
                          replace_sampler_ddp = False, 
                          logger = tb_logger,
-                         plugins=DDPPlugin(find_unused_parameters=False)
+                         val_check_interval=5000
 #                          auto_select_gpus=True
                         )
                          
