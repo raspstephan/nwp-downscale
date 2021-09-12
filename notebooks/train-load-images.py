@@ -64,9 +64,9 @@ def train(input_args):
     sys.path.append(model_dir)
     print("sys path:", sys.path)
     
-    from src.models import GANs, gens, discs
-    from src.dataloader import TiggeMRMSPatchLoadDataset
-#     from run_src.utils import *
+    from run_src.models import GANs, gens, discs
+    from run_src.dataloader import TiggeMRMSPatchLoadDataset
+
     
     print("Args loaded")
     # set seed
@@ -80,7 +80,6 @@ def train(input_args):
     print("Loading data ... ")
     ds_train = TiggeMRMSPatchLoadDataset(args.data_hparams['train_dataset_path'], samples_vars=args.data_hparams['samples_vars'])
 
-    print(len(ds_train))
     sampler_train = torch.utils.data.WeightedRandomSampler(ds_train.weights, len(ds_train))
     sampler_train = DistributedSamplerWrapper(sampler_train, num_replicas = args.train_hparams['gpus'], rank = 0)
     
@@ -89,11 +88,12 @@ def train(input_args):
     
     dl_train = torch.utils.data.DataLoader(ds_train, batch_size=batch_size, sampler=sampler_train, num_workers=16, pin_memory=True)
     
-#     args.gan_hparams['val_hparams']['ds_max'] = ds_train.maxs.tp.values
-#     args.gan_hparams['val_hparams']['ds_min'] = ds_train.mins.tp.values
-#     args.gan_hparams['val_hparams']['tp_log'] = ds_train.tp_log
+    val_args = pickle.load(open(args.data_hparams['valid_dataset_path']+'/configs/dataset_args'))
+    
+    args.gan_hparams['val_hparams']['ds_max'] = val_args['maxs'].tp.values
+    args.gan_hparams['val_hparams']['ds_min'] = val_args['mins'].tp.values
+    args.gan_hparams['val_hparams']['tp_log'] = val_args['tp_log']
 
-    del ds_train
     
     print("Data loading complete")
     ## Load Model
