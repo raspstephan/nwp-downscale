@@ -78,10 +78,10 @@ def train(input_args):
     ## Load Data and set data params
     
     print("Loading data ... ")
-    ds_train = TiggeMRMSPatchLoadDataset(args.data_hparams['train_dataset_path'])
+    ds_train = TiggeMRMSPatchLoadDataset(args.data_hparams['train_dataset_path'], samples_vars=args.data_hparams['samples_vars'])
 
     print(len(ds_train))
-    sampler_train = torch.utils.data.WeightedRandomSampler(ds_train.compute_weights(), len(ds_train))
+    sampler_train = torch.utils.data.WeightedRandomSampler(ds_train.weights, len(ds_train))
     sampler_train = DistributedSamplerWrapper(sampler_train, num_replicas = args.train_hparams['gpus'], rank = 0)
     
     batch_size = args.train_hparams['batch_size']//args.train_hparams['gpus']
