@@ -6,6 +6,7 @@ import pandas as pd
 from .utils import tqdm, device, to_categorical
 from skimage.measure import block_reduce
 from skimage.transform import resize
+import os
 
 def log_trans(x, eps):
     """Log transform with given epsilon. Preserves zeros."""
@@ -119,6 +120,8 @@ class TiggeMRMSDataset(Dataset):
                 const_maxs = self.const.max()
                 self.const = (self.const - const_mins) / (const_maxs - const_mins)
             self.const = self.const[self.const_vars].to_array()
+            
+        self.var_names = {'total_precipitation': 'tp', 'total_precipitation_ens10':'tp', 'total_column_water':'tcw', 'total_column_water_ens10':'tcw', '2m_temperature':'t2m', 'convective_available_potential_energy':'cape', 'convective_inhibition':'cin'}
     
     def _scale(self, mins, maxs, scale_mrms=True):
         """Apply min-max scaling. Use same scaling for tp in TIGGE and MRMS."""
@@ -244,6 +247,7 @@ class TiggeMRMSDataset(Dataset):
             member_idx = np.random.choice(self.tigge.member)
             X = X.sel(member=member_idx)
             
+<<<<<<< HEAD
         if self.ensemble_mode == 'stack_tp_only':
             X = xr.concat([X.rename({'variable': 'raw_variable'}).sel(raw_variable='tp').stack(variable=['member']).transpose(
                 'variable', 'lat', 'lon'), 
@@ -251,6 +255,26 @@ class TiggeMRMSDataset(Dataset):
                 'variable', 'lat', 'lon')], 
           'variable')
             
+=======
+        if self.ensemble_mode == 'stack_by_variable':
+            X = xr.concat([X.rename({'variable': 'raw_variable'}).sel(raw_variable=self.var_names[i]).stack(variable=['member']).transpose(
+                'variable', 'lat', 'lon').drop('raw_variable') for i in self.tigge_vars if 'ens10' in i] + 
+           [X.sel(variable=[self.var_names[i] for i in self.tigge_vars if 'ens10' not in i], member=0).transpose(
+                'variable', 'lat', 'lon')], 
+          'variable')
+            
+            self.var_stack_idxs = {}
+            ind_count = 0
+            for i, var in enumerate(self.tigge_vars):
+                if 'ens10' in var:
+                    self.var_stack_idxs[self.var_names[var]] = ind_count + np.arange(10)
+                    ind_count+=10
+            for i, var in enumerate(self.tigge_vars):
+                if 'ens10' not in var:
+                    self.var_stack_idxs[self.var_names[var]] = ind_count + np.arange(1)
+                    ind_count+=1
+            
+>>>>>>> main
         X = X.values
         if hasattr(self, 'const'):  # Add constants
             X = self._add_const(X, lat_slice, lon_slice)
@@ -285,6 +309,9 @@ class TiggeMRMSDataset(Dataset):
             X_crop = X[:,self.pad_tigge:self.pad_tigge + self.patch_tigge, self.pad_tigge:self.pad_tigge + self.patch_tigge]
             X_downsample = resize(X[0:1,:,:], (1, self.patch_tigge, self.patch_tigge))
             X = np.concatenate((X_crop, X_downsample), axis=0)
+            self.var_stack_idxs['pad_tigge_channel'] = ind_count + np.arange(1)
+            ind_count+=1
+            
         return X.astype(np.float32), y.astype(np.float32)   # [vars, patch, patch]
     
     def _add_const(self, X, lat_slice, lon_slice):
@@ -401,4 +428,39 @@ def create_valid_predictions(model, ds_valid):
     )
     return preds
 
+import os
 
+class TiggeMRMSPatchLoadDataset(Dataset):
+
+    def __init__(self, root_dir, samples_vars = {'tp':1}):
+        self.root_dir = root_dir
+        self.weights = np.load(self.root_dir+'/weights/weights.npz', allow_pickle=True)['weights']
+        self.var_stack_idxs = np.load(self.root_dir+'/configs/var_stack_idxs.npz', allow_pickle=True)['var_stack_idxs']
+        self.samples_vars = samples_vars
+        
+    def __len__(self):
+        return len(self.weights)
+    
+    def __getitem__(self, idx):
+        data = np.load(self.root_dir+f'/data/x_{idx}.npz')
+        y = data['mrms']
+        inds = np.zeros(sum(self.samples_vars.values()), dtype=np.int)
+        pointer = 0
+        for i, tot in self.samples_vars.items():
+            inds[pointer:pointer+tot] = np.random.choice(self.var_stack_idxs.item()[i], size = tot, replace=False)
+            pointer+=tot
+        x = data['forecast'][inds]
+        
+        return x,y
+    
+
+def save_images(ds, save_dir, split):
+    path = save_dir + split + '/'
+    os.makedirs(path+'data')
+    os.makedirs(path+'weights')
+    os.makedirs(path+'configs')
+    for i in range(len(ds)):
+        np.savez_compressed(path+f'data/x_{i}.npz',forecast = ds[i][0], mrms = ds[i][1])
+    weights = ds.compute_weights()
+    np.savez_compressed(path+f'weights/weights.npz', weights = weights)
+    np.savez_compressed(path+f'configs/var_stack_idxs.npz', var_stack_idxs = ds.var_stack_idxs)
