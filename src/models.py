@@ -2133,9 +2133,20 @@ class Corrector(nn.Module):
                 nn.init.kaiming_normal_(m.weight.data)
     
 
-    
+
+class DBGModule(nn.Module):
+    def __init__(self):
+        super().__init__()
+        
+    def forward(self, x_out, y_out):
+        #mse_sample = torch.mean(torch.square(x_out - y_out), dim=[1,2,3])
+        mse_ref = torch.mean(torch.square(x_out), dim=[1,2,3]) +  torch.mean(torch.square(y_out), dim=[1,2,3])
+        #nonzero_mseref = mse_ref!=0
+        #fss = 1 - torch.divide(mse_sample[nonzero_mseref], mse_ref[nonzero_mseref])
+        return mse_ref 
+
 class CheckCorrector(LightningModule):
-    def __init__(self, input_channels = 6, cond_idx = 0, real_idx = 1): 
+    def __init__(self, input_channels=15, cond_idx = 0, real_idx = 1): 
         super().__init__()
         self.cond_idx =  cond_idx
         self.real_idx = real_idx
@@ -2145,22 +2156,55 @@ class CheckCorrector(LightningModule):
         self.l1loss = nn.L1Loss()
         self.l1_lambda = 0.0000
         self.fss_window = 4
-        self.fss_lambda = 0.1
+        self.fss_lambda = 1
         self.fss_pool = nn.AvgPool2d(kernel_size=self.fss_window, padding=0, stride=1)
-              
+        #self.fss_pool.register_full_backward_hook(self.printgradnorm)
+        self.sigmoid = nn.Sigmoid()
+        #self.fss_pool.register_full_backward_hook(self.printgradnorm)
+        #self.fss_dbg = DBGModule()
+        #self.fss_dbg.register_full_backward_hook(self.printgradnorm)
+        
+    def printgradnorm(self, module, grad_input, grad_output):
+        print('Inside ' + module.__class__.__name__ + ' backward')
+        print('Inside class:' + self.__class__.__name__)
+        print('')
+        print('grad_input: ', type(grad_input))
+        print('grad_input[0]: ', torch.reshape(grad_input[0], (-1,)))
+        print('grad_output: ', type(grad_output))
+        print('grad_output[0]: ', grad_output[0])
+        print('')
+        print('grad_input size:', grad_input[0].size())
+        print('grad_output size:', grad_output[0].size())
+        print('grad_input norm:', grad_input[0].norm())
+        print('grad_output norm:', grad_output[0].norm())
+        print('')
+        print('grad_input num nans:', torch.sum(torch.isnan(grad_input[0])))
+        print('grad_output num nans:', torch.sum(torch.isnan(grad_output[0])))
+    
+
     def loss(self, real, corrected):
-        return self.l1loss(real, corrected) - self.fss_lambda*self.fss(corrected, real, threshold = 0.1)
+#        if torch.sum(torch.isnan(self.fss(corrected, real, threshold = 0.5)))>0:
+#            print("nan fss")
+#        if torch.sum(torch.isnan(self.l1loss(real, corrected)))>0:
+#            print("nan l1loss")
+        return self.l1loss(real, corrected) - self.fss_lambda*self.fss(corrected, real, threshold = 0.5)
     
     def forward(self, condition, noise):
         return self.gen(condition, noise)
     
     
     def training_step(self, batch, batch_idx):
-
+        
         condition, real = batch[self.cond_idx], batch[self.real_idx]
         
+#        if torch.sum(torch.isnan(condition))>0:
+#            print("nan condition")
+            
+#        if torch.sum(torch.isnan(real))>0:
+#            print("nan real")
+            
         real = self.downsample(real, scale_factor = 0.125, mode = 'bilinear', align_corners = False)
-        corrected = self.corrector(condition)
+        corrected = self.corrector(condition) 
         
         loss = self.loss(real, corrected) #+ self.l1_lambda*torch.linalg.norm(corrected.view(-1), 1)
         
@@ -2193,24 +2237,28 @@ class CheckCorrector(LightningModule):
         corrected_fss_10 = self.fss(corrected, real, threshold = 0.1)
         corrected_fss_50 = self.fss(corrected, real, threshold = 0.5)
         
-        self.log('forecast_fss_1/10', forecast_fss_10, on_epoch=True, prog_bar=True, logger=True)
-        self.log('forecast_fss_5/10', forecast_fss_50, on_epoch=True, prog_bar=True, logger=True)
-        self.log('corrected_fss_1/10', corrected_fss_10, on_epoch=True, prog_bar=True, logger=True)
-        self.log('corrected_fss_5/10', forecast_fss_50, on_epoch=True, prog_bar=True, logger=True)
+        self.log('forecast_fss/10', forecast_fss_10, on_epoch=True, prog_bar=True, logger=True)
+        self.log('forecast_fss/50', forecast_fss_50, on_epoch=True, prog_bar=True, logger=True)
+        self.log('corrected_fss/10', corrected_fss_10, on_epoch=True, prog_bar=True, logger=True)
+        self.log('corrected_fss/50', corrected_fss_50, on_epoch=True, prog_bar=True, logger=True)
         
     def fss(self, x,y,threshold):
         c= 200
-        x_mask = torch.sigmoid(c*(x - threshold))
-        y_mask = torch.sigmoid(c*(y - threshold))
+        x_mask = self.sigmoid(c*(x - threshold))
+        y_mask = self.sigmoid(c*(y - threshold))
         
         y_out = self.fss_pool(y_mask)
         x_out = self.fss_pool(x_mask[:, 0:1, :, :])
-        mse_sample = torch.mean(torch.square(x_out - y_out), dim=[1,2,3])    
-        mse_ref = torch.mean(torch.square(x_out), dim=[1,2,3]) +  torch.mean(torch.square(y_out), dim=[1,2,3])   
-        fss = 1 - torch.divide(mse_sample, mse_ref)
         
-        return torch.mean(fss[torch.isfinite(fss)])
-    
+        mse_sample = torch.mean(torch.square(x_out - y_out))    
+        #mse_ref = torch.mean(torch.square(x_out), dim=[1,2,3]) +  torch.mean(torch.square(y_out), dim=[1,2,3])   
+        
+        #mse_ref = self.fss_dbg(x_out, y_out)
+        #nonzero_mseref = mse_ref!=0
+        #fss = 1 - torch.divide(mse_sample[nonzero_mseref], mse_ref[nonzero_mseref])
+
+        #return torch.mean(fss)
+        return mse_sample
 #         mse = torch.zeros(len(x_mask), device=self.device)
 #         for sample in range(len(x_mask)):
 #             y_out = self.fss_conv(y_mask[sample].unsqueeze(0).type(torch.half))/window_size

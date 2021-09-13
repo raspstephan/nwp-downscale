@@ -246,16 +246,7 @@ class TiggeMRMSDataset(Dataset):
         if self.ensemble_mode == 'random':
             member_idx = np.random.choice(self.tigge.member)
             X = X.sel(member=member_idx)
-            
-<<<<<<< HEAD
-        if self.ensemble_mode == 'stack_tp_only':
-            X = xr.concat([X.rename({'variable': 'raw_variable'}).sel(raw_variable='tp').stack(variable=['member']).transpose(
-                'variable', 'lat', 'lon'), 
-           X.sel(variable=[i for i in X.coords['variable'].values if i!='tp'], member=0).transpose(
-                'variable', 'lat', 'lon')], 
-          'variable')
-            
-=======
+          
         if self.ensemble_mode == 'stack_by_variable':
             X = xr.concat([X.rename({'variable': 'raw_variable'}).sel(raw_variable=self.var_names[i]).stack(variable=['member']).transpose(
                 'variable', 'lat', 'lon').drop('raw_variable') for i in self.tigge_vars if 'ens10' in i] + 
@@ -274,7 +265,6 @@ class TiggeMRMSDataset(Dataset):
                     self.var_stack_idxs[self.var_names[var]] = ind_count + np.arange(1)
                     ind_count+=1
             
->>>>>>> main
         X = X.values
         if hasattr(self, 'const'):  # Add constants
             X = self._add_const(X, lat_slice, lon_slice)
@@ -450,7 +440,7 @@ class TiggeMRMSPatchLoadDataset(Dataset):
             inds[pointer:pointer+tot] = np.random.choice(self.var_stack_idxs.item()[i], size = tot, replace=False)
             pointer+=tot
         x = data['forecast'][inds]
-        
+        del data
         return x,y
     
 
