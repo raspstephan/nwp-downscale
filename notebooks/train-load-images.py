@@ -79,16 +79,24 @@ def train(input_args):
     
     print("Loading data ... ")
     ds_train = TiggeMRMSPatchLoadDataset(args.data_hparams['train_dataset_path'], samples_vars=args.data_hparams['samples_vars'])
-
-    sampler_train = torch.utils.data.WeightedRandomSampler(ds_train.weights, len(ds_train))
-    sampler_train = DistributedSamplerWrapper(sampler_train, num_replicas = args.train_hparams['gpus'], rank = 0)
+    ds_valid = TiggeMRMSPatchLoadDataset(args.data_hparams['valid_dataset_path'], samples_vars=args.data_hparams['samples_vars'])
     
-    batch_size = args.train_hparams['batch_size']//args.train_hparams['gpus']
+    sampler_train = torch.utils.data.WeightedRandomSampler(ds_train.weights, len(ds_train))
+    sampler_train = DistributedSamplerWrapper(sampler_train, num_replicas = len(args.train_hparams['gpus']) if type(args.train_hparams['gpus'])==list else  args.train_hparams['gpus'], rank = 0)
+    sampler_valid = torch.utils.data.SequentialSampler(ds_valid)
+    sampler_valid = DistributedSamplerWrapper(sampler_valid, num_replicas = len(args.train_hparams['gpus']) if type(args.train_hparams['gpus'])==list else  args.train_hparams['gpus'], rank = 0)
+    
+    
+    if type(args.train_hparams['gpus']) == list:
+        batch_size = args.train_hparams['batch_size']//len(args.train_hparams['gpus'])
+    else:
+        batch_size = args.train_hparams['batch_size']//args.train_hparams['gpus']
     
     
     dl_train = torch.utils.data.DataLoader(ds_train, batch_size=batch_size, sampler=sampler_train, num_workers=16, pin_memory=True)
+    dl_valid = torch.utils.data.DataLoader(ds_valid, batch_size=batch_size, sampler=sampler_valid, num_workers=16, pin_memory=True)
     
-    val_args = pickle.load(open(args.data_hparams['valid_dataset_path']+'/configs/dataset_args'))
+    val_args = pickle.load(open(args.data_hparams['valid_dataset_path']+'/configs/dataset_args.pkl', 'rb'))
     
     args.gan_hparams['val_hparams']['ds_max'] = val_args['maxs'].tp.values
     args.gan_hparams['val_hparams']['ds_min'] = val_args['mins'].tp.values
@@ -142,7 +150,7 @@ def train(input_args):
     print("Training model...")
     
     # Train
-    trainer.fit(model, dl_train)    
+    trainer.fit(model, dl_train, dl_valid)    
     
 
 if __name__ == '__main__':

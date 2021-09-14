@@ -71,7 +71,7 @@ def train(input_args):
     print("Args loaded")
     # set seed
     torch.manual_seed(args.seed)
-    torch.autograd.set_detect_anomaly(True)
+    #torch.autograd.set_detect_anomaly(True)
     
     ## Load Data and set data params
     
@@ -79,7 +79,8 @@ def train(input_args):
     ds_train = TiggeMRMSPatchLoadDataset(args.data_hparams['train_dataset_path'], samples_vars=args.data_hparams['samples_vars'])
     
     ds_valid = TiggeMRMSPatchLoadDataset(args.data_hparams['valid_dataset_path'], samples_vars=args.data_hparams['samples_vars'])
-
+    print(len(ds_valid))
+    
     sampler_train = torch.utils.data.WeightedRandomSampler(ds_train.weights, len(ds_train))
 #     sampler_train = torch.utils.data.RandomSampler(ds_train)
     sampler_train = DistributedSamplerWrapper(sampler_train, num_replicas = len(args.train_hparams['gpus']) if type(args.train_hparams['gpus'])==list else  args.train_hparams['gpus'], rank = 0)

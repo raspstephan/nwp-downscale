@@ -11,6 +11,7 @@ import torch.nn as nn
 from .utils import tqdm, device
 from .layers import *
 from .dataloader import log_retrans
+from .loss import *
 
 import xarray as xr
 import xskillscore as xs
@@ -1917,40 +1918,6 @@ class BaseGAN2(LightningModule):
         gradient_norm = gradient.norm(2, dim=1)
         gradient_penalty = torch.mean((gradient_norm - 1)**2)
         return gradient_penalty
-    
-    def loss_disc(self, disc_real, disc_fake):
-        if self.loss_hparams['disc_loss'] == "wasserstein":
-            return -(torch.mean(disc_real) - torch.mean(disc_fake))
-        elif self.loss_hparams['disc_loss'] == "hinge":
-            return torch.mean(F.relu(1-disc_real)) + torch.mean(F.relu(1+disc_fake))
-        else:
-            raise NotImplementedError
-    
-    def loss_gen(self, fake, disc_fake, real):
-        if self.loss_hparams['gen_loss'] == "wasserstein":
-            return -torch.mean(disc_fake)
-        elif self.loss_hparams['gen_loss'] == "ens_mean_L1_weighted":
-            assert len(self.noise_shape)==4
-            l = -torch.mean(disc_fake)
-#             print('loss in loss gen', l)
-            lambda_l1_reg = self.loss_hparams['lambda_l1_reg']
-            mean_fake = torch.mean(fake, dim=0)
-#             print("mean fake")
-#             print(mean_fake)
-            diff = mean_fake - real
-#             print("diff", diff)
-            def weight_diff(y):
-                return torch.clamp(y+1, min=24)
-            clipped = weight_diff(real)
-#             print("clipped", clipped)
-            weighted_diff = diff * clipped
-#             print("weighted_diff", weighted_diff)
-#             print("weighted_diff shape", weighted_diff.shape)
-            l += lambda_l1_reg*(1/real.numel()) * torch.linalg.norm(weighted_diff.reshape(-1), 1)
-#             print('loss in loss gen', l)
-            return l
-        else:
-            raise NotImplementedError
 
     
     def training_step(self, batch, batch_idx, optimizer_idx):
@@ -1983,29 +1950,31 @@ class BaseGAN2(LightningModule):
                 noise = torch.randn(real.shape[0], *self.noise_shape[-3:], device=self.device)
             disc_real = self.disc(condition, real).reshape(-1)
             if len(noise.shape) == 5:
-                fakes = []
-                disc_fakes = []
+                fake = []
+                disc_fake = []
                 for i in range(noise.shape[1]):
                     noise_sample = noise[:,i,:,:,:]
-                    fake = self.gen(condition, noise_sample)
-                    disc_fake = self.disc(condition, fake).reshape(-1)
-                    fakes.append(fake)
-                    disc_fakes.append(disc_fake)
-                fakes = torch.stack(fakes, dim=0)
-                disc_fakes = torch.stack(disc_fakes, dim = 0)
-#                 print("fakes.shape", fakes.shape)
-#                 print("disc_fakes.shape", disc_fakes.shape)
-                loss_disc = self.loss_disc(disc_real, disc_fakes)
-#                 print("disc loss", loss_disc)
+                    fake_temp = self.gen(condition, noise_sample)
+                    disc_fake_temp = self.disc(condition, fake_temp).reshape(-1)
+                    fake.append(fake_temp)
+                    disc_fake.append(disc_fake_temp)
+                fake = torch.stack(fake, dim=0)
+                disc_fake = torch.stack(disc_fake, dim = 0)
             else:
                 fake = self.gen(condition, noise)
                 disc_fake = self.disc(condition, fake).reshape(-1)
-                loss_disc = self.loss_disc(disc_real, disc_fake)
             
-            if 'lambda_gp' in self.loss_hparams:
-                gp = self.gradient_penalty(condition, real, fake)
-                loss_disc = loss_disc + self.loss_hparams['lambda_gp']*gp
+            loss_disc = torch.tensor(0.0).to(self.device)
             
+            if "wasserstein" in self.loss_hparams['disc_loss']:
+                loss_disc+= self.loss_hparams['disc_loss']["wasserstein"]*disc_wasserstein(disc_real, disc_fake)
+            
+            if "hinge" in self.loss_hparams['disc_loss']:
+                loss_disc+= self.loss_hparams['disc_loss']["hinge"]*disc_hinge(disc_real, disc_fake)
+                
+            if "gradient_penalty" in self.loss_hparams['disc_loss']:
+                loss_disc+= self.loss_hparams['disc_loss']["gradient_penalty"]*gradient_penalty(self.disc, condition, real, fake, self.device)
+                
             self.log('discriminator_loss', loss_disc, on_epoch=True, on_step=True, prog_bar=True, logger=True)
             return loss_disc
         
@@ -2017,23 +1986,32 @@ class BaseGAN2(LightningModule):
             else:
                 noise = torch.randn(real.shape[0], *self.noise_shape, device = self.device)
             if len(noise.shape) == 5:
-                fakes = []
-                disc_fakes = []
+                fake = []
+                disc_fake = []
                 for i in range(noise.shape[1]):
                     noise_sample = noise[:,i,:,:,:]
-                    fake = self.gen(condition, noise_sample)
-                    disc_fake = self.disc(condition, fake).reshape(-1)
-                    fakes.append(fake)
-                    disc_fakes.append(disc_fake)
-                fakes = torch.stack(fakes, dim=0)
-                disc_fakes = torch.stack(disc_fakes, dim = 0)
-#                 print("fakes.shape", fakes.shape)
-#                 print("disc_fakes.shape", disc_fakes.shape)
-                loss_gen = self.loss_gen(fakes, disc_fakes, real)
+                    fake_temp = self.gen(condition, noise_sample)
+                    disc_fake_temp = self.disc(condition, fake_temp).reshape(-1)
+                    fake.append(fake_temp)
+                    disc_fake.append(disc_fake_temp)
+                fake = torch.stack(fake, dim=0)
+                disc_fake = torch.stack(disc_fake, dim = 0)
+
             else:
                 fake = self.gen(condition, noise)
                 disc_fake = self.disc(condition, fake).reshape(-1)
-                loss_gen = self.loss_gen(fake, disc_fake, real)
+                
+            loss_gen = torch.tensor(0.0).to(self.device)
+            
+            if "wasserstein" in self.loss_hparams['gen_loss']:
+                loss_gen+= self.loss_hparams['gen_loss']["wasserstein"]*gen_wasserstein(disc_fake)
+            
+            if "non_saturating" in self.loss_hparams['gen_loss']:
+                loss_gen+= self.loss_hparams['gen_loss']["non_saturating"]*gen_logistic_nonsaturating(disc_fake)
+                
+            if "ens_mean_L1_weighted" in self.loss_hparams['gen_loss']:
+                loss_gen+= self.loss_hparams['gen_loss']["ens_mean_L1_weighted"]*ens_mean_L1_weighted(fake, real)
+                
             self.log('generator_loss', loss_gen, on_epoch=True, on_step=True, prog_bar=True, logger=True)
             return loss_gen 
         
