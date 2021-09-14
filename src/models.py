@@ -2100,6 +2100,185 @@ class BaseGAN2(LightningModule):
         
         return crps
     
+    
+
+class Corrector(nn.Module):
+    def __init__(self, input_channels=1, norm=None):
+        super(Corrector, self).__init__()
+        self.embed = nn.Sequential(nn.Conv2d(input_channels,64, kernel_size=3, padding=1), nn.ReLU(),
+                                      LeinResBlock(in_planes=64, planes=128, stride=1,  nonlin = 'relu', norm=norm), 
+                                      LeinResBlock(in_planes=128, planes=256, stride=1, nonlin = 'relu', norm=norm))
+        
+        self.process = nn.Sequential(LeinResBlock(in_planes=256, planes=256, stride=1,  nonlin = 'relu', norm=norm), 
+                                      LeinResBlock(in_planes=256, planes=256, stride=1, nonlin = 'relu', norm=norm), 
+                                    LeinResBlock(in_planes=256, planes=256, stride=1, nonlin = 'relu', norm=norm)
+                                    )
+        
+        self.final = nn.Conv2d(256,1, kernel_size=3, padding=1)
+         
+        self.initialize_weights()
+        
+    def forward(self, x):
+        x = self.embed(x)
+        x = self.process(x)
+        x = 1.01*torch.sigmoid(self.final(x)) - 0.005
+#         x = F.relu(self.final(x))
+        return x
+    
+    def initialize_weights(self):
+        # Initializes weights according to the DCGAN paper
+        for m in self.modules():
+            if isinstance(m, (nn.Conv2d, nn.ConvTranspose2d)):#, nn.BatchNorm2d)):
+#                 nn.init.normal_(m.weight.data, 0.0, 0.02)
+                nn.init.kaiming_normal_(m.weight.data)
+    
+
+
+class DBGModule(nn.Module):
+    def __init__(self):
+        super().__init__()
+        
+    def forward(self, x_out, y_out):
+        #mse_sample = torch.mean(torch.square(x_out - y_out), dim=[1,2,3])
+        mse_ref = torch.mean(torch.square(x_out), dim=[1,2,3]) +  torch.mean(torch.square(y_out), dim=[1,2,3])
+        #nonzero_mseref = mse_ref!=0
+        #fss = 1 - torch.divide(mse_sample[nonzero_mseref], mse_ref[nonzero_mseref])
+        return mse_ref 
+
+class CheckCorrector(LightningModule):
+    def __init__(self, input_channels=15, cond_idx = 0, real_idx = 1): 
+        super().__init__()
+        self.cond_idx =  cond_idx
+        self.real_idx = real_idx
+        self.corrector = Corrector(input_channels=input_channels)
+        self.downsample = F.interpolate
+#         self.loss = nn.MSELoss()
+        self.l1loss = nn.L1Loss()
+        self.l1_lambda = 0.0000
+        self.fss_window = 4
+        self.fss_lambda = 1
+        self.fss_pool = nn.AvgPool2d(kernel_size=self.fss_window, padding=0, stride=1)
+        #self.fss_pool.register_full_backward_hook(self.printgradnorm)
+        self.sigmoid = nn.Sigmoid()
+        #self.fss_pool.register_full_backward_hook(self.printgradnorm)
+        #self.fss_dbg = DBGModule()
+        #self.fss_dbg.register_full_backward_hook(self.printgradnorm)
+        
+    def printgradnorm(self, module, grad_input, grad_output):
+        print('Inside ' + module.__class__.__name__ + ' backward')
+        print('Inside class:' + self.__class__.__name__)
+        print('')
+        print('grad_input: ', type(grad_input))
+        print('grad_input[0]: ', torch.reshape(grad_input[0], (-1,)))
+        print('grad_output: ', type(grad_output))
+        print('grad_output[0]: ', grad_output[0])
+        print('')
+        print('grad_input size:', grad_input[0].size())
+        print('grad_output size:', grad_output[0].size())
+        print('grad_input norm:', grad_input[0].norm())
+        print('grad_output norm:', grad_output[0].norm())
+        print('')
+        print('grad_input num nans:', torch.sum(torch.isnan(grad_input[0])))
+        print('grad_output num nans:', torch.sum(torch.isnan(grad_output[0])))
+    
+
+    def loss(self, real, corrected):
+#        if torch.sum(torch.isnan(self.fss(corrected, real, threshold = 0.5)))>0:
+#            print("nan fss")
+#        if torch.sum(torch.isnan(self.l1loss(real, corrected)))>0:
+#            print("nan l1loss")
+        return self.l1loss(real, corrected) - self.fss_lambda*self.fss(corrected, real, threshold = 0.5)
+    
+    def forward(self, condition, noise):
+        return self.gen(condition, noise)
+    
+    
+    def training_step(self, batch, batch_idx):
+        
+        condition, real = batch[self.cond_idx], batch[self.real_idx]
+        
+#        if torch.sum(torch.isnan(condition))>0:
+#            print("nan condition")
+            
+#        if torch.sum(torch.isnan(real))>0:
+#            print("nan real")
+            
+        real = self.downsample(real, scale_factor = 0.125, mode = 'bilinear', align_corners = False)
+        corrected = self.corrector(condition) 
+        
+        loss = self.loss(real, corrected) #+ self.l1_lambda*torch.linalg.norm(corrected.view(-1), 1)
+        
+        self.log('loss', loss, on_epoch=True, on_step=True, prog_bar=True, logger=True)
+        
+        if self.global_step %100 == 0:
+            l1error = F.l1_loss(real, corrected)
+            forecast_l1error = F.l1_loss(real, condition[:, 0:1, :, :])
+            self.log('forecast_loss', forecast_l1error, on_epoch=True, on_step=True, prog_bar=True, logger=True)
+            self.log('our_error_minus_forecast_error', l1error - forecast_l1error, on_epoch=True, on_step=True, prog_bar=True, logger=True)
+        
+        return loss
+    
+    def validation_step(self, batch, batch_idx):
+
+        condition, real = batch[self.cond_idx], batch[self.real_idx]
+        
+        real = self.downsample(real, scale_factor = 0.125, mode = 'bilinear', align_corners = False)
+        corrected = self.corrector(condition)
+        
+        l1error = F.l1_loss(real, corrected)
+        forecast_l1error = F.l1_loss(real, condition[:, 0:1, :, :])
+        
+        self.log('val_loss', l1error, on_epoch=True, prog_bar=True, logger=True)
+        self.log('forecast_loss', forecast_l1error, on_epoch=True, prog_bar=True, logger=True)
+        self.log('our_error_minus_forecast_error', l1error - forecast_l1error, on_epoch=True, prog_bar=True, logger=True)
+        
+        forecast_fss_10 = self.fss(condition, real, threshold = 0.1)
+        forecast_fss_50 = self.fss(condition, real, threshold = 0.5)
+        corrected_fss_10 = self.fss(corrected, real, threshold = 0.1)
+        corrected_fss_50 = self.fss(corrected, real, threshold = 0.5)
+        
+        self.log('forecast_fss/10', forecast_fss_10, on_epoch=True, prog_bar=True, logger=True)
+        self.log('forecast_fss/50', forecast_fss_50, on_epoch=True, prog_bar=True, logger=True)
+        self.log('corrected_fss/10', corrected_fss_10, on_epoch=True, prog_bar=True, logger=True)
+        self.log('corrected_fss/50', corrected_fss_50, on_epoch=True, prog_bar=True, logger=True)
+        
+    def fss(self, x,y,threshold):
+        c= 200
+        x_mask = self.sigmoid(c*(x - threshold))
+        y_mask = self.sigmoid(c*(y - threshold))
+        
+        y_out = self.fss_pool(y_mask)
+        x_out = self.fss_pool(x_mask[:, 0:1, :, :])
+        
+        mse_sample = torch.mean(torch.square(x_out - y_out))    
+        #mse_ref = torch.mean(torch.square(x_out), dim=[1,2,3]) +  torch.mean(torch.square(y_out), dim=[1,2,3])   
+        
+        #mse_ref = self.fss_dbg(x_out, y_out)
+        #nonzero_mseref = mse_ref!=0
+        #fss = 1 - torch.divide(mse_sample[nonzero_mseref], mse_ref[nonzero_mseref])
+
+        #return torch.mean(fss)
+        return mse_sample
+#         mse = torch.zeros(len(x_mask), device=self.device)
+#         for sample in range(len(x_mask)):
+#             y_out = self.fss_conv(y_mask[sample].unsqueeze(0).type(torch.half))/window_size
+#             x_out = self.fss_conv(x_mask[sample, 0:1, :, :].unsqueeze(0).type(torch.half))/window_size
+#             mse_sample = torch.mean(torch.square(x_out - y_out))    
+#             mse_ref = torch.mean(torch.square(x_out)) +  torch.mean(torch.square(y_out))
+#             if mse_ref == 0:
+#                 continue
+#             fss_sample = 1 - (mse_sample / mse_ref)
+#             mse[sample] = fss_sample
+            
+#         return torch.mean(mse)
+        
+    def configure_optimizers(self):
+        opt = optim.Adam(self.corrector.parameters(), eps=5e-5, lr=5e-5, betas=(0,0.9), weight_decay=1e-4)
+        return opt
+
+        
+        
+    
 GANs = {
     'base':BaseGAN, 
     'wgan-gp':WGANGP, 

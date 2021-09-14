@@ -80,7 +80,9 @@ def train(input_args):
     print("Loading data ... ")
     ds_train = pickle.load(open(args.data_hparams['train_dataset_path'], "rb"))
     ds_valid = pickle.load(open(args.data_hparams['valid_dataset_path'], "rb"))
-
+    
+    print("len ds train", len(ds_train))
+    
     sampler_train = torch.utils.data.WeightedRandomSampler(ds_train.compute_weights(), len(ds_train))
     sampler_train = DistributedSamplerWrapper(sampler_train, num_replicas = len(args.train_hparams['gpus']) if type(args.train_hparams['gpus'])==list else  args.train_hparams['gpus'], rank = 0)
     sampler_valid = torch.utils.data.WeightedRandomSampler(ds_valid.compute_weights(), len(ds_valid))
@@ -92,9 +94,10 @@ def train(input_args):
         batch_size = args.train_hparams['batch_size']//args.train_hparams['gpus']
     
     
-    dl_train = torch.utils.data.DataLoader(ds_train, batch_size=batch_size, sampler=sampler_train, num_workers=6)
-    dl_valid = torch.utils.data.DataLoader(ds_valid, batch_size=batch_size, sampler=sampler_valid, num_workers=6)
-
+    dl_train = torch.utils.data.DataLoader(ds_train, batch_size=batch_size, sampler=sampler_train, num_workers=6, pin_memory=False)
+    dl_valid = torch.utils.data.DataLoader(ds_valid, batch_size=batch_size, sampler=sampler_valid, num_workers=6, pin_memory=False)
+    
+    print("len dl train", len(dl_train))
     
     args.gan_hparams['val_hparams']['ds_max'] = ds_train.maxs.tp.values
     args.gan_hparams['val_hparams']['ds_min'] = ds_train.mins.tp.values

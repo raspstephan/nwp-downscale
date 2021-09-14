@@ -24,7 +24,7 @@ then
         mv "${dest}src" "${dest}run_src"
     fi
     
-    python train.py --experiment_config $1 --ckpt_path $2
+    python train-load-images.py --experiment_config $1 --ckpt_path $2
 
 else
     dest="${save_dir}${run_name}${run_number}/"
@@ -41,5 +41,5 @@ else
     
     mv "${dest}src" "${dest}run_src" 
 
-    python train.py --experiment_config $1
+    python train-load-images.py --experiment_config $1
 fi
