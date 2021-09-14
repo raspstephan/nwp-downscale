@@ -831,10 +831,12 @@ class LeinGen2(nn.Module):
 class LeinDisc(nn.Module):
     def __init__(self, input_channels=1, nonlin = 'leaky_relu'):
         super(LeinDisc, self).__init__()
-        hr_block = []
-        lr_block = []
         lr_inplanes = input_channels
         hr_inplanes = 1
+        hr_block = [nn.Conv2d(hr_inplanes,32, kernel_size=3, padding=1), nn.LeakyReLU(0.02)]
+        lr_block = [nn.Conv2d(lr_inplanes,32, kernel_size=3, padding=1), nn.LeakyReLU(0.02)]
+        lr_inplanes = 32
+        hr_inplanes = 32
         for planes in [64, 128, 256]:
             hr_block.append(LeinResBlock(in_planes = hr_inplanes, planes=planes, stride=2, nonlin = nonlin))
             lr_block.append(LeinResBlock(in_planes = lr_inplanes, planes=planes, stride=1, nonlin = nonlin))
