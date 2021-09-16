@@ -397,6 +397,9 @@ def par_SR_gen_patch_eval(gen, dl_test, nens, ds_min, ds_max, tp_log, device):
     truth_means = []
     truth_hists = []
     preds_fss = []
+    preds_brier_1 = []
+    preds_brier_5 = []
+    preds_brier_10 = []
     
     t.tic()
     num_workers = mp.cpu_count()
@@ -414,14 +417,18 @@ def par_SR_gen_patch_eval(gen, dl_test, nens, ds_min, ds_max, tp_log, device):
             rhist.append(res[4])
             rels_1.append(res[5])
             rels_4.append(res[6])
+            preds_brier_1.append(res[7])
+            preds_brier_5.append(res[8])
+            preds_brier_10.append(res[9])
             
         print("batch complete")
         print(f"current len of crps {len(crps)}")
             
     for batch_idx, (x,y) in enumerate(dl_test):
+        if batch_idx >30:
+            break
         t.tic()
         x = x.to(device)
-        print(x.shape)
         preds = []
         for i in range(x.shape[1]):
             noise = torch.zeros(x.shape[0], 1, x.shape[2], x.shape[3]).to(device)
@@ -498,7 +505,10 @@ def par_SR_gen_patch_eval(gen, dl_test, nens, ds_min, ds_max, tp_log, device):
                "preds_mean": np.mean(pred_means), 
                "true_hist": truth_hists,
                "preds_hist": pred_hists, 
-               "fss": np.mean(preds_fss)
+               "fss": np.mean(preds_fss),
+                "preds_brier_1" : np.mean(preds_brier_1),
+                "preds_brier_5" : np.mean(preds_brier_5),
+                "preds_brier_10": np.mean(preds_brier_10)
               }
     
     
@@ -554,7 +564,7 @@ def par_gen_patch_eval(gen, dl_test, nens, ds_min, ds_max, tp_log, device):
         print(f"current len of crps {len(crps)}")
             
     for batch_idx, (x,y) in enumerate(dl_test):
-        if batch_idx >25:
+        if batch_idx >30:
             break
         t.tic()
         x = x.to(device)
@@ -637,7 +647,10 @@ def par_gen_patch_eval(gen, dl_test, nens, ds_min, ds_max, tp_log, device):
                "preds_mean": np.mean(pred_means), 
                "true_hist": truth_hists,
                "preds_hist": pred_hists, 
-               "fss": np.mean(preds_fss)
+               "fss": np.mean(preds_fss),
+                "preds_brier_1" : np.mean(preds_brier_1),
+                "preds_brier_5" : np.mean(preds_brier_5),
+                "preds_brier_10": np.mean(preds_brier_10)
               }
     
     

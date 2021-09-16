@@ -60,7 +60,7 @@ def evaluate(input_args):
     sys.path.append(model_dir)
 
     from run_src.models import GANs
-    from run_src.dataloader import TiggeMRMSPatchLoadDataset
+    from src.dataloader import TiggeMRMSPatchLoadDataset
 #     from run_src.utils import *
     from src.evaluation import par_gen_patch_eval, gen_patch_eval, par_gen_full_field_eval, par_SR_gen_patch_eval
 
@@ -69,7 +69,10 @@ def evaluate(input_args):
 
     ## Load Data and set data params
     ds_test = TiggeMRMSPatchLoadDataset(args.data_hparams["test_dataset_path"], samples_vars=args.data_hparams['samples_vars'])  
-    sampler_test = torch.utils.data.RandomSampler(ds_test)
+    test_batch_idxs = np.load("/home/jupyter/data/data_patches/test/configs/test_batch_idxs.npy", allow_pickle=True)
+    ds_test = torch.utils.data.Subset(ds_test, test_batch_idxs)
+    
+    sampler_test = torch.utils.data.SequentialSampler(ds_test)
     dl_test = torch.utils.data.DataLoader(
         ds_test, batch_size=args.eval_hparams["batch_size"], sampler=sampler_test
     )
