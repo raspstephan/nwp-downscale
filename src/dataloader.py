@@ -125,13 +125,12 @@ class TiggeMRMSDataset(Dataset):
     
     def _scale(self, mins, maxs, scale_mrms=True):
         """Apply min-max scaling. Use same scaling for tp in TIGGE and MRMS."""
-
+        
         self.mins = mins or self.tigge.min()   # Use min/max if provided, otherwise compute
         self.maxs = maxs or self.tigge.max()
         
         if self.cat_bins is None:
-            self.maxs['tp'] = self.mrms.max()   # Make sure to take MRMS max for tp
-        self.tigge = (self.tigge - self.mins) / (self.maxs - self.mins)
+            self.tigge = (self.tigge - self.mins) / (self.maxs - self.mins)
         if scale_mrms:
             self.mrms = (self.mrms - self.mins.tp) / (self.maxs.tp - self.mins.tp)
                              

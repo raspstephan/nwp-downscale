@@ -4,6 +4,7 @@ from torch import nn
 from pytorch_lightning.core.lightning import LightningModule
 import pytorch_lightning as pl
 from pytorch_lightning import loggers as pl_loggers
+from pytorch_lightning.plugins import DDPPlugin
 
 import torch.optim as optim
 import torchvision
@@ -64,6 +65,15 @@ def train(input_args):
     sys.path.append(model_dir)
     print("sys path:", sys.path)
     
+    val_args = pickle.load(open(args.data_hparams['valid_dataset_path']+'/configs/dataset_args.pkl', 'rb'))
+    
+    args.gan_hparams['val_hparams']['ds_max'] = val_args['maxs'].tp.values.item()
+    args.gan_hparams['val_hparams']['ds_min'] = val_args['mins'].tp.values.item()
+    args.gan_hparams['val_hparams']['tp_log'] = val_args['tp_log']
+
+    #save run config
+    json.dump(vars(args), open(args.save_hparams["save_dir"]+args.save_hparams["run_name"]+str(args.save_hparams["run_number"])+"/experiment_config.json", 'w'))
+
     from run_src.models import GANs, gens, discs
     from run_src.dataloader import TiggeMRMSPatchLoadDataset
 
@@ -95,14 +105,7 @@ def train(input_args):
     
     dl_train = torch.utils.data.DataLoader(ds_train, batch_size=batch_size, sampler=sampler_train, num_workers=16, pin_memory=True)
     dl_valid = torch.utils.data.DataLoader(ds_valid, batch_size=batch_size, sampler=sampler_valid, num_workers=16, pin_memory=True)
-    
-    val_args = pickle.load(open(args.data_hparams['valid_dataset_path']+'/configs/dataset_args.pkl', 'rb'))
-    
-    args.gan_hparams['val_hparams']['ds_max'] = val_args['maxs'].tp.values
-    args.gan_hparams['val_hparams']['ds_min'] = val_args['mins'].tp.values
-    args.gan_hparams['val_hparams']['tp_log'] = val_args['tp_log']
-
-    
+        
     print("Data loading complete")
     ## Load Model
     if input_args.ckpt_path:
@@ -119,7 +122,8 @@ def train(input_args):
 
     save_dir = args.save_hparams['save_dir']
 
-    checkpoint_callback = pl.callbacks.ModelCheckpoint(dirpath=save_dir+args.save_hparams['run_name']+str(args.save_hparams['run_number']) + '/')
+    checkpoint_callback = pl.callbacks.ModelCheckpoint(dirpath=save_dir+args.save_hparams['run_name']+str(args.save_hparams['run_number']) + '/', 
+                                                      every_n_train_steps = 10000)
     
     tb_logger = pl_loggers.TensorBoardLogger(save_dir = '../logs/',
                                              name = args.save_hparams['run_name'], 
@@ -132,7 +136,7 @@ def train(input_args):
                          max_epochs = args.train_hparams['epochs'], 
                          callbacks=[checkpoint_callback], 
                          replace_sampler_ddp = False, 
-                         check_val_every_n_epoch=20, 
+                         check_val_every_n_epoch=1, 
                          logger = tb_logger, 
                          resume_from_checkpoint = input_args.ckpt_path
                         )
@@ -142,7 +146,7 @@ def train(input_args):
                          max_epochs = args.train_hparams['epochs'], 
                          callbacks=[checkpoint_callback], 
                          replace_sampler_ddp = False, 
-                         check_val_every_n_epoch=20, 
+                         check_val_every_n_epoch=1, 
                          logger = tb_logger, 
 #                          auto_select_gpus=True
                         )
