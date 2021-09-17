@@ -67,6 +67,7 @@ class TiggeMRMSDataset(Dataset):
         self.tigge = xr.merge([
             xr.open_mfdataset(f'{tigge_dir}/{v}/*.nc') for v in tigge_vars
         ])  # Merge all TIGGE variables
+        
                
         if 'convective_inhibition' in tigge_vars:
             print("setting nans in convective_inhibition to 0")
@@ -87,6 +88,8 @@ class TiggeMRMSDataset(Dataset):
             self.tigge = self.tigge.dropna('init_time')
         self._crop_times()   # Only take times that overlap and (potentially) do train/val split
         print('Loading data')
+        import pdb
+        pdb.set_trace()
         self.tigge.load(); self.mrms.load()   # Load datasets into RAM
         if tp_log:
             self.tigge['tp'] = log_trans(self.tigge['tp'], tp_log)
@@ -95,7 +98,8 @@ class TiggeMRMSDataset(Dataset):
         
         if scale:   # Apply min-max scaling
             self._scale(mins, maxs, scale_mrms=True if self.cat_bins is None else False)
-          
+        
+ 
         # Doing this here saves time
         self.tigge = self.tigge.to_array()
         
