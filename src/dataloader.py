@@ -209,7 +209,7 @@ class TiggeMRMSDataset(Dataset):
             v += len(self.const.variable)
         return v
     
-    def __getitem__(self, idx, time_idx=None, full_array=False, no_cat=False):
+    def __getitem__(self, idx, time_idx=None, full_array=False, no_cat=False,  member_idx=None):
         """Return individual sample. idx is the sample id, i.e. the index of self.idxs.
         X: TIGGE sample
         y: corresponding MRMS (radar) sample
@@ -243,9 +243,9 @@ class TiggeMRMSDataset(Dataset):
             X = X.rename({'variable': 'raw_variable'}).stack(variable = ['raw_variable', 'member']).transpose(
                 'variable', 'lat', 'lon')
         if self.ensemble_mode == 'random':
-            member_idx = np.random.choice(self.tigge.member)
+            if member_idx is None:
+                member_idx = np.random.choice(self.tigge.member)
             X = X.sel(member=member_idx)
-          
         if self.ensemble_mode == 'stack_by_variable':
             X = xr.concat([X.rename({'variable': 'raw_variable'}).sel(raw_variable=self.var_names[i]).stack(variable=['member']).transpose(
                 'variable', 'lat', 'lon').drop('raw_variable') for i in self.tigge_vars if 'ens10' in i] + 
@@ -325,9 +325,9 @@ class TiggeMRMSDataset(Dataset):
         # y = np.rollaxis(y, 2)
         return y.squeeze().astype('int')
     
-    def return_full_array(self, time_idx):
+    def return_full_array(self, time_idx, member_idx=None):
         """Shortcut to return a full scaled array for a single time index"""
-        return self.__getitem__(0, time_idx, full_array=True)
+        return self.__getitem__(0, time_idx, full_array=True, member_idx=member_idx)
 
 
     def compute_weights(self, min_weight=0.02, max_weight=0.4, threshold=0.025, exp=4, 
