@@ -23,7 +23,7 @@ def add_zero_lead_time(da, check_exists=True):
 
 def main(start_date, stop_date, path, check_exists=True):
     
-    save_path = f'{path}/href/4km/total_precipitation/'
+    save_path = f'{path}/hrefv2/4km/total_precipitation/'
     os.makedirs(save_path, exist_ok=True)
     
     init_dates = pd.to_datetime(np.arange(
@@ -55,8 +55,13 @@ def main(start_date, stop_date, path, check_exists=True):
                             f'{path}/{model}/4km/total_precipitation/{previous_date_str}_{str(previous_date.hour).zfill(2)}.nc'
                         )
                     )
-                    previous = (previous - previous.sel(lead_time=np.timedelta64(lag, 'h'))).assign_coords({
-                        'init_time': previous.init_time + np.timedelta64(lag, 'h')
+                    # Cut off unused lead times
+                    previous = previous.sel(lead_time=slice(np.timedelta64(lag, 'h'), None))
+                    # Change init_time to current init time
+                    # Change lead_time to 0
+                    previous = previous.assign_coords({
+                        'init_time': previous.init_time + np.timedelta64(lag, 'h')}).assign_coords({
+                        'lead_time': previous.lead_time - np.timedelta64(lag, 'h')
                     })
                     members.extend([current, previous])
                     names.extend([model, f'{model}-{lag}h'])
