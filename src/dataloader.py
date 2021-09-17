@@ -239,6 +239,10 @@ class TiggeMRMSDataset(Dataset):
             lat=lat_slice,
             lon=lon_slice
         )
+        
+        self.var_stack_idxs = {}
+        ind_count = 0
+            
         if self.ensemble_mode == 'stack':
             X = X.rename({'variable': 'raw_variable'}).stack(variable = ['raw_variable', 'member']).transpose(
                 'variable', 'lat', 'lon')
@@ -253,8 +257,6 @@ class TiggeMRMSDataset(Dataset):
                 'variable', 'lat', 'lon')], 
           'variable')
             
-            self.var_stack_idxs = {}
-            ind_count = 0
             for i, var in enumerate(self.tigge_vars):
                 if 'ens10' in var:
                     self.var_stack_idxs[self.var_names[var]] = ind_count + np.arange(10)
