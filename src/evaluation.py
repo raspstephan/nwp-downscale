@@ -168,11 +168,11 @@ def compute_metrics(truth, preds, truth_pert, preds_pert, sample):
     sample_rmse = xs.rmse(preds.sel(sample=sample).mean('member'), truth.sel(sample=sample), dim=['lat', 'lon']).values
     rhist = xs.rank_histogram(truth_pert.sel(sample=sample), preds_pert.sel(sample=sample)).values
     
-    rel1 = xs.reliability(truth.sel(sample=sample)>1,(preds.sel(sample=sample)>1).mean('member'), probability_bin_edges=np.array([0.2*i for i in range(5)]))
+    rel1 = xs.reliability(truth.sel(sample=sample)>1,(preds.sel(sample=sample)>1).mean('member'))
     rel1 = xr.where(np.isnan(rel1), 0, rel1)
     rel1['relative_freq'] = rel1
     
-    rel4 = xs.reliability(truth.sel(sample=sample)>4,(preds.sel(sample=sample)>4).mean('member'), probability_bin_edges=np.array([0.2*i for i in range(5)]))
+    rel4 = xs.reliability(truth.sel(sample=sample)>4,(preds.sel(sample=sample)>4).mean('member'))
     rel4 = xr.where(np.isnan(rel4), 0, rel4)
     rel4['relative_freq'] = rel4
 
@@ -734,7 +734,7 @@ def gen_patch_eval(gen, dl_test, nens, ds_min, ds_max, tp_log, device):
 #             t.toc('rank histogram took', restart=True)
             
 #             t.tic()
-            rel = xs.reliability(truth.sel(sample=sample)>0.1,(preds.sel(sample=sample)>0.1).mean('member'), probability_bin_edges=np.array([0.1*i for i in range(10)]))
+            rel = xs.reliability(truth.sel(sample=sample)>1,(preds.sel(sample=sample)>1).mean('member'))
             rel = xr.where(np.isnan(rel), 0, rel)
             rel['relative_freq'] = rel
             rels.append(rel)
