@@ -67,6 +67,7 @@ class TiggeMRMSDataset(Dataset):
         self.tigge = xr.merge([
             xr.open_mfdataset(f'{tigge_dir}/{v}/*.nc') for v in tigge_vars
         ])  # Merge all TIGGE variables
+        
                
         if 'convective_inhibition' in tigge_vars:
             print("setting nans in convective_inhibition to 0")
@@ -87,6 +88,7 @@ class TiggeMRMSDataset(Dataset):
             self.tigge = self.tigge.dropna('init_time')
         self._crop_times()   # Only take times that overlap and (potentially) do train/val split
         print('Loading data')
+
         self.tigge.load(); self.mrms.load()   # Load datasets into RAM
         if tp_log:
             self.tigge['tp'] = log_trans(self.tigge['tp'], tp_log)
@@ -95,7 +97,8 @@ class TiggeMRMSDataset(Dataset):
         
         if scale:   # Apply min-max scaling
             self._scale(mins, maxs, scale_mrms=True if self.cat_bins is None else False)
-          
+        
+ 
         # Doing this here saves time
         self.tigge = self.tigge.to_array()
         
@@ -125,13 +128,12 @@ class TiggeMRMSDataset(Dataset):
     
     def _scale(self, mins, maxs, scale_mrms=True):
         """Apply min-max scaling. Use same scaling for tp in TIGGE and MRMS."""
-
+        
         self.mins = mins or self.tigge.min()   # Use min/max if provided, otherwise compute
         self.maxs = maxs or self.tigge.max()
         
         if self.cat_bins is None:
-            self.maxs['tp'] = self.mrms.max()   # Make sure to take MRMS max for tp
-        self.tigge = (self.tigge - self.mins) / (self.maxs - self.mins)
+            self.tigge = (self.tigge - self.mins) / (self.maxs - self.mins)
         if scale_mrms:
             self.mrms = (self.mrms - self.mins.tp) / (self.maxs.tp - self.mins.tp)
                              
@@ -210,7 +212,7 @@ class TiggeMRMSDataset(Dataset):
             v += len(self.const.variable)
         return v
     
-    def __getitem__(self, idx, time_idx=None, full_array=False, no_cat=False):
+    def __getitem__(self, idx, time_idx=None, full_array=False, no_cat=False,  member_idx=None):
         """Return individual sample. idx is the sample id, i.e. the index of self.idxs.
         X: TIGGE sample
         y: corresponding MRMS (radar) sample
@@ -240,13 +242,17 @@ class TiggeMRMSDataset(Dataset):
             lat=lat_slice,
             lon=lon_slice
         )
+        
+        self.var_stack_idxs = {}
+        ind_count = 0
+            
         if self.ensemble_mode == 'stack':
             X = X.rename({'variable': 'raw_variable'}).stack(variable = ['raw_variable', 'member']).transpose(
                 'variable', 'lat', 'lon')
         if self.ensemble_mode == 'random':
-            member_idx = np.random.choice(self.tigge.member)
+            if member_idx is None:
+                member_idx = np.random.choice(self.tigge.member)
             X = X.sel(member=member_idx)
-          
         if self.ensemble_mode == 'stack_by_variable':
             X = xr.concat([X.rename({'variable': 'raw_variable'}).sel(raw_variable=self.var_names[i]).stack(variable=['member']).transpose(
                 'variable', 'lat', 'lon').drop('raw_variable') for i in self.tigge_vars if 'ens10' in i] + 
@@ -254,8 +260,6 @@ class TiggeMRMSDataset(Dataset):
                 'variable', 'lat', 'lon')], 
           'variable')
             
-            self.var_stack_idxs = {}
-            ind_count = 0
             for i, var in enumerate(self.tigge_vars):
                 if 'ens10' in var:
                     self.var_stack_idxs[self.var_names[var]] = ind_count + np.arange(10)
@@ -326,9 +330,9 @@ class TiggeMRMSDataset(Dataset):
         # y = np.rollaxis(y, 2)
         return y.squeeze().astype('int')
     
-    def return_full_array(self, time_idx):
+    def return_full_array(self, time_idx, member_idx=None):
         """Shortcut to return a full scaled array for a single time index"""
-        return self.__getitem__(0, time_idx, full_array=True)
+        return self.__getitem__(0, time_idx, full_array=True, member_idx=member_idx)
 
 
     def compute_weights(self, min_weight=0.02, max_weight=0.4, threshold=0.025, exp=4, 

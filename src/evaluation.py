@@ -43,6 +43,9 @@ def tigge_interp_patch_eval(dl_test, ds_min, ds_max, tp_log, device):
     truth_means = []
     truth_hists = []
     preds_fss = []
+    preds_brier_1 = []
+    preds_brier_5 = []
+    preds_brier_10 = []
     
     t.tic()
     num_workers = mp.cpu_count()
@@ -60,6 +63,9 @@ def tigge_interp_patch_eval(dl_test, ds_min, ds_max, tp_log, device):
             rhist.append(res[4])
             rels_1.append(res[5])
             rels_4.append(res[6])
+            preds_brier_1.append(res[7])
+            preds_brier_5.append(res[8])
+            preds_brier_10.append(res[9])
             
         print("batch complete")
         print(f"current len of crps {len(crps)}")
@@ -69,6 +75,7 @@ def tigge_interp_patch_eval(dl_test, ds_min, ds_max, tp_log, device):
         x = x.to(device)
         print(x.shape)
         preds = F.interpolate(x, size = (128, 128), mode='bilinear').detach().to('cpu').numpy().squeeze()
+        print(preds.shape)
         preds = preds.transpose(1,0,2,3)
         truth = y.numpy().squeeze(1)
         
@@ -142,7 +149,10 @@ def tigge_interp_patch_eval(dl_test, ds_min, ds_max, tp_log, device):
                "preds_mean": np.mean(pred_means), 
                "true_hist": truth_hists,
                "preds_hist": pred_hists, 
-               "fss": np.mean(preds_fss)
+               "fss": np.mean(preds_fss),
+                "preds_brier_1" : np.mean(preds_brier_1),
+                "preds_brier_5" : np.mean(preds_brier_5),
+                "preds_brier_10": np.mean(preds_brier_10)
               }
     
     
@@ -158,41 +168,58 @@ def compute_metrics(truth, preds, truth_pert, preds_pert, sample):
     sample_rmse = xs.rmse(preds.sel(sample=sample).mean('member'), truth.sel(sample=sample), dim=['lat', 'lon']).values
     rhist = xs.rank_histogram(truth_pert.sel(sample=sample), preds_pert.sel(sample=sample)).values
     
-    rel1 = xs.reliability(truth.sel(sample=sample)>1,(preds.sel(sample=sample)>1).mean('member'), probability_bin_edges=np.array([0.1*i for i in range(10)]))
+    rel1 = xs.reliability(truth.sel(sample=sample)>1,(preds.sel(sample=sample)>1).mean('member'))
     rel1 = xr.where(np.isnan(rel1), 0, rel1)
     rel1['relative_freq'] = rel1
     
-    rel4 = xs.reliability(truth.sel(sample=sample)>1,(preds.sel(sample=sample)>4).mean('member'), probability_bin_edges=np.array([0.1*i for i in range(10)]))
+    rel4 = xs.reliability(truth.sel(sample=sample)>4,(preds.sel(sample=sample)>4).mean('member'))
     rel4 = xr.where(np.isnan(rel4), 0, rel4)
     rel4['relative_freq'] = rel4
 
-    return (sample_crps, sample_max_pool_crps, sample_avg_pool_crps, sample_rmse, rhist, rel1, rel4)
+    
+    sample_brier_1 = xs.brier_score(truth.sel(sample=sample) > 1.0, (preds.sel(sample=sample) > 1.0).mean('member'), dim=['lat', 'lon'])
+    
+    sample_brier_5 = xs.brier_score(truth.sel(sample=sample) > 5.0, (preds.sel(sample=sample) > 5.0).mean('member'), dim=['lat', 'lon'])
+        
+    sample_brier_10 = xs.brier_score(truth.sel(sample=sample) > 10.0, (preds.sel(sample=sample) > 10.0).mean('member'), dim=['lat', 'lon'])
+    
+    return (sample_crps, sample_max_pool_crps, sample_avg_pool_crps, sample_rmse, rhist, rel1, rel4, sample_brier_1, sample_brier_5, sample_brier_10)
     
 
-    
     
 def fss(x,y,threshold, window, device):
     x_mask = x>=threshold
     y_mask = y>=threshold
-    conv = nn.Sequential(nn.Conv2d(1,1,kernel_size=window, stride=1, padding=0, bias=False)).to(device)
-    for w in conv.parameters():
-        nn.init.constant_(w, 1.0)
     window_size=window**2
     mse = []
-    for sample in range(x_mask.shape[0]):
-        yin = torch.from_numpy(y_mask[sample:sample+1,:,:].values.astype(np.float32)).unsqueeze(1).to(device)
-        y_out = conv(yin)/window_size
-        for member in range(x_mask.shape[1]):
-            xin = torch.from_numpy(x_mask[sample:sample+1,member:member+1,:,:].values.astype(np.float32)).transpose(0,1).to(device)  
-            x_out = conv(xin)/window_size
-            mseij = torch.mean(torch.square(x_out - y_out))    
-            mse_ref = torch.mean(torch.square(x_out)) +  torch.mean(torch.square(y_out))
-            if mse_ref == 0:
-                continue
-            fss_ij = 1 - (mseij / mse_ref)
-            mse.append(fss_ij.detach().cpu().numpy())
-            
+    yin = torch.from_numpy(y_mask.values.astype(np.float32)).unsqueeze(1).to(device)
+    y_out = F.avg_pool2d(yin, window, stride=1, padding=0)
+    for member in range(x_mask.shape[1]):
+        xin = torch.from_numpy(x_mask[:,member:member+1,:,:].values.astype(np.float32)).to(device)
+        x_out = F.avg_pool2d(xin, window, stride=1, padding=0)
+        mseij = torch.mean(torch.square(x_out - y_out))    
+        mse_ref = torch.mean(torch.square(x_out)) +  torch.mean(torch.square(y_out))
+        if mse_ref == 0:
+            continue
+        fss_ij = 1 - (mseij / mse_ref)
+        mse.append(fss_ij.detach().cpu().numpy())
+             
     return np.mean(mse)
+       
+    #for sample in range(x_mask.shape[0])for sample in range(x_mask.shape[0]):
+#        yin = torch.from_numpy(y_mask[sample:sample+1,:,:].values.astype(np.float32)).unsqueeze(1).to(device)
+#        y_out = conv(yin)/window_size
+#        for member in range(x_mask.shape[1]):
+#            xin = torch.from_numpy(x_mask[sample:sample+1,member:member+1,:,:].values.astype(np.float32)).transpose(0,1).to(device)  
+#            x_out = conv(xin)/window_size
+#            mseij = torch.mean(torch.square(x_out - y_out))    
+#            mse_ref = torch.mean(torch.square(x_out)) +  torch.mean(torch.square(y_out))
+#            if mse_ref == 0:
+#                continue
+#            fss_ij = 1 - (mseij / mse_ref)
+#            mse.append(fss_ij.detach().cpu().numpy())
+            
+#    return np.mean(mse)
 
 def par_gen_full_field_eval(gen, ds_test, nens, ds_min, ds_max, tp_log, device):
     """
@@ -380,6 +407,9 @@ def par_SR_gen_patch_eval(gen, dl_test, nens, ds_min, ds_max, tp_log, device):
     truth_means = []
     truth_hists = []
     preds_fss = []
+    preds_brier_1 = []
+    preds_brier_5 = []
+    preds_brier_10 = []
     
     t.tic()
     num_workers = mp.cpu_count()
@@ -397,6 +427,9 @@ def par_SR_gen_patch_eval(gen, dl_test, nens, ds_min, ds_max, tp_log, device):
             rhist.append(res[4])
             rels_1.append(res[5])
             rels_4.append(res[6])
+            preds_brier_1.append(res[7])
+            preds_brier_5.append(res[8])
+            preds_brier_10.append(res[9])
             
         print("batch complete")
         print(f"current len of crps {len(crps)}")
@@ -404,7 +437,6 @@ def par_SR_gen_patch_eval(gen, dl_test, nens, ds_min, ds_max, tp_log, device):
     for batch_idx, (x,y) in enumerate(dl_test):
         t.tic()
         x = x.to(device)
-        print(x.shape)
         preds = []
         for i in range(x.shape[1]):
             noise = torch.zeros(x.shape[0], 1, x.shape[2], x.shape[3]).to(device)
@@ -481,7 +513,10 @@ def par_SR_gen_patch_eval(gen, dl_test, nens, ds_min, ds_max, tp_log, device):
                "preds_mean": np.mean(pred_means), 
                "true_hist": truth_hists,
                "preds_hist": pred_hists, 
-               "fss": np.mean(preds_fss)
+               "fss": np.mean(preds_fss),
+                "preds_brier_1" : np.mean(preds_brier_1),
+                "preds_brier_5" : np.mean(preds_brier_5),
+                "preds_brier_10": np.mean(preds_brier_10)
               }
     
     
@@ -509,6 +544,9 @@ def par_gen_patch_eval(gen, dl_test, nens, ds_min, ds_max, tp_log, device):
     truth_means = []
     truth_hists = []
     preds_fss = []
+    preds_brier_1 = []
+    preds_brier_5 = []
+    preds_brier_10 = []
     
     t.tic()
     num_workers = mp.cpu_count()
@@ -526,6 +564,9 @@ def par_gen_patch_eval(gen, dl_test, nens, ds_min, ds_max, tp_log, device):
             rhist.append(res[4])
             rels_1.append(res[5])
             rels_4.append(res[6])
+            preds_brier_1.append(res[7])
+            preds_brier_5.append(res[8])
+            preds_brier_10.append(res[9])
             
         print("batch complete")
         print(f"current len of crps {len(crps)}")
@@ -536,8 +577,11 @@ def par_gen_patch_eval(gen, dl_test, nens, ds_min, ds_max, tp_log, device):
         preds = []
         for i in range(nens):
             noise = torch.randn(x.shape[0], 1, x.shape[2], x.shape[3]).to(device)
-            pred = gen(x, noise).detach().to('cpu').numpy().squeeze()
-            preds.append(pred)
+            try: 
+                pred, _ = gen(x, noise)
+            except:
+                pred = gen(x, noise)  
+            preds.append(pred.detach().to('cpu').numpy().squeeze())
         preds = np.array(preds)
         truth = y.numpy().squeeze(1)
         
@@ -609,7 +653,10 @@ def par_gen_patch_eval(gen, dl_test, nens, ds_min, ds_max, tp_log, device):
                "preds_mean": np.mean(pred_means), 
                "true_hist": truth_hists,
                "preds_hist": pred_hists, 
-               "fss": np.mean(preds_fss)
+               "fss": np.mean(preds_fss),
+                "preds_brier_1" : np.mean(preds_brier_1),
+                "preds_brier_5" : np.mean(preds_brier_5),
+                "preds_brier_10": np.mean(preds_brier_10)
               }
     
     
@@ -687,7 +734,7 @@ def gen_patch_eval(gen, dl_test, nens, ds_min, ds_max, tp_log, device):
 #             t.toc('rank histogram took', restart=True)
             
 #             t.tic()
-            rel = xs.reliability(truth.sel(sample=sample)>0.1,(preds.sel(sample=sample)>0.1).mean('member'), probability_bin_edges=np.array([0.1*i for i in range(10)]))
+            rel = xs.reliability(truth.sel(sample=sample)>1,(preds.sel(sample=sample)>1).mean('member'))
             rel = xr.where(np.isnan(rel), 0, rel)
             rel['relative_freq'] = rel
             rels.append(rel)
