@@ -179,9 +179,9 @@ def compute_metrics(truth, preds, truth_pert, preds_pert, sample):
     
     sample_brier_1 = xs.brier_score(truth.sel(sample=sample) > 1.0, (preds.sel(sample=sample) > 1.0).mean('member'), dim=['lat', 'lon'])
     
-    sample_brier_5 = xs.brier_score(truth.sel(sample=sample) > 5.0, (preds.sel(sample=sample) > 1.0).mean('member'), dim=['lat', 'lon'])
+    sample_brier_5 = xs.brier_score(truth.sel(sample=sample) > 5.0, (preds.sel(sample=sample) > 5.0).mean('member'), dim=['lat', 'lon'])
         
-    sample_brier_10 = xs.brier_score(truth.sel(sample=sample) > 10.0, (preds.sel(sample=sample) > 1.0).mean('member'), dim=['lat', 'lon'])
+    sample_brier_10 = xs.brier_score(truth.sel(sample=sample) > 10.0, (preds.sel(sample=sample) > 10.0).mean('member'), dim=['lat', 'lon'])
     
     return (sample_crps, sample_max_pool_crps, sample_avg_pool_crps, sample_rmse, rhist, rel1, rel4, sample_brier_1, sample_brier_5, sample_brier_10)
     

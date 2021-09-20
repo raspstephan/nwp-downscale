@@ -42,14 +42,22 @@ def parseInputArgs():
 input_args = parseInputArgs()
 
 
-def plot_samples_per_input(data, gen, samples, device, save_dir):
+def plot_samples_per_input(data, gen, samples, device, save_dir, pure_sr = False):
     fig, axs = plt.subplots(len(data), samples+2, figsize=(5*samples, len(data)*samples))
     gen_images = np.zeros((len(data),samples,128,128))
     for i, d in enumerate(data):
         for s in range(samples):
-            cond = torch.tensor(d[0]).unsqueeze(0).to(device)
-            noise = torch.randn(cond.shape[0], 1, cond.shape[2], cond.shape[3]).to(device)
-            pred = gen(cond, noise).detach().cpu().numpy()
+            if pure_sr:
+                cond = torch.tensor(d[0][s:s+1]).unsqueeze(0).to(device)
+                noise = torch.zeros(cond.shape[0], 1, cond.shape[2], cond.shape[3]).to(device)
+            else:
+                cond = torch.tensor(d[0]).unsqueeze(0).to(device)
+                noise = torch.randn(cond.shape[0], 1, cond.shape[2], cond.shape[3]).to(device)
+            try:
+                pred, _ = gen(cond, noise)
+            except:
+                pred = gen(cond, noise)
+            pred = pred.detach().cpu().numpy()
             gen_images[i, s, :, :] = pred[0,0,:,:]
     
     for i, d in enumerate(data):
@@ -101,7 +109,7 @@ def visualise(input_args):
     ds_test = pickle.load(open(args.data_hparams["test_dataset_path"], "rb"))
     
 #     sample_indices = pickle.load(open("./sample_indices.pkl", 'rb'))
-    sample_indices = np.random.choice(100, size = 40, replace=False)
+    sample_indices = np.random.choice(1000, size = 40, replace=False)
     ds_test = torch.utils.data.Subset(ds_test, sample_indices)
     
     print("Loading data ... ")
@@ -114,7 +122,10 @@ def visualise(input_args):
 
     print("Data loading complete")
     
-    plot_samples_per_input(ds_test, gen, 4, device, model_dir) 
+    if "super_resolution" in args:
+        plot_samples_per_input(ds_test, gen, 4, device, model_dir, pure_sr=True) 
+    else:
+        plot_samples_per_input(ds_test, gen, 4, device, model_dir)
     
 
 if __name__ == '__main__':

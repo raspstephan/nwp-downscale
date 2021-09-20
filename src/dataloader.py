@@ -88,8 +88,7 @@ class TiggeMRMSDataset(Dataset):
             self.tigge = self.tigge.dropna('init_time')
         self._crop_times()   # Only take times that overlap and (potentially) do train/val split
         print('Loading data')
-        import pdb
-        pdb.set_trace()
+
         self.tigge.load(); self.mrms.load()   # Load datasets into RAM
         if tp_log:
             self.tigge['tp'] = log_trans(self.tigge['tp'], tp_log)

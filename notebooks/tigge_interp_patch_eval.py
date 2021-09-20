@@ -44,8 +44,8 @@ def evaluate():
     print("Loading data ... ")
     ## Load Data and set data params
     ds_test = TiggeMRMSPatchLoadDataset("/home/jupyter/data/data_patches/test", samples_vars=OrderedDict({'tp':10}))  
-    test_batch_idxs = np.load("/home/jupyter/data/data_patches/test/configs/test_batch_idxs.npy", allow_pickle=True)
-    ds_test = torch.utils.data.Subset(ds_test, test_batch_idxs)  
+#     test_batch_idxs = np.load("/home/jupyter/data/data_patches/test/configs/test_batch_idxs.npy", allow_pickle=True)
+#     ds_test = torch.utils.data.Subset(ds_test, test_batch_idxs)  
     sampler_test = torch.utils.data.SequentialSampler(ds_test)
     dl_test = torch.utils.data.DataLoader(
         ds_test, batch_size=128, sampler=sampler_test
