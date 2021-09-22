@@ -109,7 +109,7 @@ def visualise(input_args):
     ds_test = TiggeMRMSPatchLoadDataset(args.data_hparams["test_dataset_path"], samples_vars=args.data_hparams['samples_vars'])
     
 #     sample_indices = pickle.load(open("./sample_indices.pkl", 'rb'))
-    sample_indices = np.random.choice(50000, size = 40, replace=False)
+    sample_indices = np.random.choice(1000, size = 40, replace=False)
     ds_test = torch.utils.data.Subset(ds_test, sample_indices)
     
     print("Loading data ... ")

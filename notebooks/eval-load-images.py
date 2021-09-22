@@ -69,8 +69,8 @@ def evaluate(input_args):
 
     ## Load Data and set data params
     ds_test = TiggeMRMSPatchLoadDataset(args.data_hparams["test_dataset_path"], samples_vars=args.data_hparams['samples_vars'])  
-    test_batch_idxs = np.load("/home/jupyter/data/data_patches/test/configs/test_batch_idxs.npy", allow_pickle=True)
-    ds_test = torch.utils.data.Subset(ds_test, test_batch_idxs)
+#     test_batch_idxs = np.load("/home/jupyter/data/data_patches/test/configs/test_batch_idxs.npy", allow_pickle=True)
+#     ds_test = torch.utils.data.Subset(ds_test, test_batch_idxs)
     
     sampler_test = torch.utils.data.SequentialSampler(ds_test)
     dl_test = torch.utils.data.DataLoader(

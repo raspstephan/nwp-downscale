@@ -34,18 +34,15 @@ def evaluate():
     device = torch.device(f'cuda:0')
     print("device", device)
     
-    from src.dataloader import TiggeMRMSPatchLoadDataset
-#     from run_src.utils import *
-    from src.evaluation import tigge_interp_patch_eval
+    from src.dataloader import HREFMRMSPatchLoadDataset
+    from src.evaluation import href_patch_eval
 
     #set seed
     torch.manual_seed(0)
 
     print("Loading data ... ")
     ## Load Data and set data params
-    ds_test = TiggeMRMSPatchLoadDataset("/home/jupyter/data/data_patches/test", samples_vars=OrderedDict({'tp':10}))  
-#     test_batch_idxs = np.load("/home/jupyter/data/data_patches/test/configs/test_batch_idxs.npy", allow_pickle=True)
-#     ds_test = torch.utils.data.Subset(ds_test, test_batch_idxs)  
+    ds_test = HREFMRMSPatchLoadDataset("/home/jupyter/data/data_patches/test")  
     sampler_test = torch.utils.data.SequentialSampler(ds_test)
     dl_test = torch.utils.data.DataLoader(
         ds_test, batch_size=128, sampler=sampler_test
@@ -56,11 +53,11 @@ def evaluate():
 #     print("ds test type", type(ds_test))
     ## Load Model
     test_args = pickle.load(open('/home/jupyter/data/data_patches/test/configs/dataset_args.pkl', 'rb'))
-    metrics = tigge_interp_patch_eval(dl_test, test_args['mins'].tp.values, test_args['maxs'].tp.values, test_args['tp_log'], device)    
+    metrics = href_patch_eval(dl_test, test_args['mins'].tp.values, test_args['maxs'].tp.values, test_args['tp_log'], device)    
         
     print(metrics)
 
-    pickle.dump(metrics, open("/home/jupyter/data/saved_models/interp_tigge_patch_eval_metrics.pkl", "wb"))
+    pickle.dump(metrics, open("/home/jupyter/data/saved_models/href_patch_eval_metrics.pkl", "wb"))
 
 if __name__ == '__main__':
     evaluate()
