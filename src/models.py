@@ -2527,7 +2527,7 @@ class CorrectorGen2(nn.Module):
          
     def forward(self, x, noise):
         x = self.embed(x)
-        x = torch.cat((x,noise), axis=1)
+        x = torch.cat((x,0.1*noise), axis=1)
         x = self.process(x)
         corrected = 1.01*torch.sigmoid(self.corrector(x)) - 0.005
         x = self.upscale(x)
