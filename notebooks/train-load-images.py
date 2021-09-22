@@ -5,6 +5,7 @@ from pytorch_lightning.core.lightning import LightningModule
 import pytorch_lightning as pl
 from pytorch_lightning import loggers as pl_loggers
 from pytorch_lightning.plugins import DDPPlugin
+from pytorch_lightning.callbacks import EarlyStopping
 
 import torch.optim as optim
 import torchvision
@@ -76,6 +77,7 @@ def train(input_args):
 
     from run_src.models import GANs, gens, discs
     from run_src.dataloader import TiggeMRMSPatchLoadDataset
+    from run_src.callbacks import StopIfNan
 
     
     print("Args loaded")
@@ -125,6 +127,9 @@ def train(input_args):
     checkpoint_callback = pl.callbacks.ModelCheckpoint(dirpath=save_dir+args.save_hparams['run_name']+str(args.save_hparams['run_number']) + '/', 
                                                       every_n_train_steps = 10000)
     
+    
+    nanloss_stopping = StopIfNan(monitor = ['discriminator_loss', 'generator_loss'], every_n_train_steps=100, model_save_every_n_train_steps=10000)
+    
     tb_logger = pl_loggers.TensorBoardLogger(save_dir = '../logs/',
                                              name = args.save_hparams['run_name'], 
                                              version = args.save_hparams['run_number'])
@@ -134,7 +139,7 @@ def train(input_args):
         trainer = pl.Trainer(accelerator='ddp', 
                          precision=16, gpus = args.train_hparams['gpus'], 
                          max_epochs = args.train_hparams['epochs'], 
-                         callbacks=[checkpoint_callback], 
+                         callbacks=[checkpoint_callback, nanloss_stopping], 
                          replace_sampler_ddp = False, 
                          check_val_every_n_epoch=1, 
                          logger = tb_logger, 
@@ -144,7 +149,7 @@ def train(input_args):
         trainer = pl.Trainer(accelerator='ddp', 
                          precision=16, gpus = args.train_hparams['gpus'], 
                          max_epochs = args.train_hparams['epochs'], 
-                         callbacks=[checkpoint_callback], 
+                         callbacks=[checkpoint_callback, nanloss_stopping], 
                          replace_sampler_ddp = False, 
                          check_val_every_n_epoch=1, 
                          logger = tb_logger, 
