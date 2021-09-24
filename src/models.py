@@ -1946,7 +1946,7 @@ class BaseGAN2(LightningModule):
                 fake = self.gen(condition, noise)
                 disc_fake = self.disc(condition, fake).reshape(-1)
             
-            loss_disc = torch.tensor(0.0).to(self.device)
+            loss_disc = torch.tensor(0.0, device=self.device)
             
             if "wasserstein" in self.loss_hparams['disc_loss']:
                 loss_disc+= self.loss_hparams['disc_loss']["wasserstein"]*disc_wasserstein(disc_real, disc_fake)
@@ -1983,7 +1983,7 @@ class BaseGAN2(LightningModule):
                 fake = self.gen(condition, noise)
                 disc_fake = self.disc(condition, fake).reshape(-1)
                 
-            loss_gen = torch.tensor(0.0).to(self.device)
+            loss_gen = torch.tensor(0.0, device=self.device)
             
             if "wasserstein" in self.loss_hparams['gen_loss']:
                 loss_gen+= self.loss_hparams['gen_loss']["wasserstein"]*gen_wasserstein(disc_fake)
@@ -2311,25 +2311,29 @@ class CorrectorGan(LightningModule):
             else:
                 noise = torch.randn(real.shape[0], *self.noise_shape[-3:], device=self.device)
             disc_real = self.disc(condition, real).reshape(-1)
-            if len(noise.shape) == 5:
-                fake = []
-                disc_fake = []
-                corrected_lr = []
-                for i in range(noise.shape[1]):
-                    noise_sample = noise[:,i,:,:,:]
-                    fake_temp, corrected_lr_temp = self.gen(condition, noise_sample)
-                    disc_fake_temp = self.disc(condition, fake_temp).reshape(-1)
-                    fake.append(fake_temp)
-                    disc_fake.append(disc_fake_temp)
-                    corrected_lr.append(corrected_lr_temp)
-                fake = torch.stack(fake, dim=0)
-                disc_fake = torch.stack(disc_fake, dim = 0)
-                corrected_lr = torch.stack(corrected_lr, dim = 0)
-            else:
-                fake, corrected_lr = self.gen(condition, noise)
-                disc_fake = self.disc(condition, fake).reshape(-1)
+#             print(noise.shape)
+#             if len(noise.shape) == 5:
+#                 fake = torch.empty((self.noise_shape[0], real.shape[0], real.shape[1], real.shape[2], real.shape[3]), dtype = torch.float32, device=self.device)
+#                 disc_fake = []
+# #                 corrected_lr = torch.empty((self.noise_shape[0], condition.shape[0], 1, condition.shape[2], condition.shape[3]), dtype = torch.float32, device=self.device)
+#                 for i in range(noise.shape[1]):
+#                     noise_sample = noise[:,i,:,:,:]
+#                     fake_temp, corrected_lr_temp = self.gen(condition, noise_sample)
+#                     disc_fake_temp = self.disc(condition, fake_temp).reshape(-1)
+# #                     fake.append(fake_temp)
+#                     fake[i,:,:,:,:] = fake_temp
+#                     print("disc fake temp shape", disc_fake_temp.shape)
+#                     disc_fake.append(disc_fake_temp)
+# #                     corrected_lr.append(corrected_lr_temp)
+# #                     corrected_lr[i,:,:,:,:] = corrected_lr_temp
+# #                 fake = torch.stack(fake, dim=0)
+#                 disc_fake = torch.stack(disc_fake, dim = 0)
+# #                 corrected_lr = torch.stack(corrected_lr, dim = 0)
+#             else:
+            fake, corrected_lr = self.gen(condition, noise)
+            disc_fake = self.disc(condition, fake).reshape(-1)
             
-            loss_disc = torch.tensor(0.0).to(self.device)
+            loss_disc = torch.tensor(0.0, device=self.device)
             
             if "wasserstein" in self.loss_hparams['disc_loss']:
                 loss_disc+= self.loss_hparams['disc_loss']["wasserstein"]*disc_wasserstein(disc_real, disc_fake)
@@ -2351,25 +2355,28 @@ class CorrectorGan(LightningModule):
             else:
                 noise = torch.randn(real.shape[0], *self.noise_shape, device = self.device)
             if len(noise.shape) == 5:
-                fake = []
-                disc_fake = []
-                corrected_lr = []
+                fake = torch.empty((self.noise_shape[0], real.shape[0], real.shape[1], real.shape[2], real.shape[3]), dtype = torch.float32, device=self.device)
+                disc_fake = torch.empty((self.noise_shape[0], real.shape[0]), dtype = torch.float32, device=self.device)
+                corrected_lr = torch.empty((self.noise_shape[0], condition.shape[0], 1, condition.shape[2], condition.shape[3]), dtype = torch.float32, device=self.device)
                 for i in range(noise.shape[1]):
                     noise_sample = noise[:,i,:,:,:]
                     fake_temp, corrected_lr_temp = self.gen(condition, noise_sample)
                     disc_fake_temp = self.disc(condition, fake_temp).reshape(-1)
-                    fake.append(fake_temp)
-                    disc_fake.append(disc_fake_temp)
-                    corrected_lr.append(corrected_lr_temp)
-                fake = torch.stack(fake, dim=0)
-                disc_fake = torch.stack(disc_fake, dim = 0)
-                corrected_lr = torch.stack(corrected_lr, dim=0)
+#                     fake.append(fake_temp)
+                    fake[i,:,:,:,:] = fake_temp
+                    disc_fake[i,:] = disc_fake_temp
+#                     disc_fake.append(disc_fake_temp)
+#                     corrected_lr.append(corrected_lr_temp)
+                    corrected_lr[i,:,:,:,:] = corrected_lr_temp
+#                 fake = torch.stack(fake, dim=0)
+#                 disc_fake = torch.stack(disc_fake, dim = 0)
+#                 corrected_lr = torch.stack(corrected_lr, dim=0)
 
             else:
                 fake, corrected_lr = self.gen(condition, noise)
                 disc_fake = self.disc(condition, fake).reshape(-1)
                 
-            loss_gen = torch.tensor(0.0).to(self.device)
+            loss_gen = torch.tensor(0.0, device=self.device)
             
             if "wasserstein" in self.loss_hparams['gen_loss']:
                 loss_gen+= self.loss_hparams['gen_loss']["wasserstein"]*gen_wasserstein(disc_fake)
@@ -2388,6 +2395,10 @@ class CorrectorGan(LightningModule):
                 
             if "ens_mean_lr_corrected_l1" in self.loss_hparams['gen_loss']:
                 loss_gen+= self.loss_hparams['gen_loss']["ens_mean_lr_corrected_l1"]*gen_ens_mean_lr_corrected_l1(corrected_lr, real)
+                
+            if "ens_mean_lr_corrected_l1_weighted" in self.loss_hparams['gen_loss']:
+                loss_gen+= self.loss_hparams['gen_loss']["ens_mean_lr_corrected_l1_weighted"]*gen_ens_mean_lr_corrected_l1_weighted(corrected_lr, real)
+                
                 
                 
             self.log('generator_loss', loss_gen, on_epoch=True, on_step=True, prog_bar=True, logger=True)
@@ -2521,13 +2532,21 @@ class CorrectorGen2(nn.Module):
                                      UpSample(2, 'bilinear'),
                                      LeinResBlock(in_planes=64, planes=32, stride=1,  nonlin = 'leaky_relu', norm=norm))
         
+#         self.upscale = nn.Sequential(LeinResBlock(in_planes=256, planes=128, stride=1,  nonlin = 'leaky_relu', norm=norm),
+#                                      UpSample(2, 'bilinear'),
+#                                      LeinResBlock(in_planes=128, planes=64, stride=1,  nonlin = 'leaky_relu', norm=norm),
+#                                      UpSample(2, 'bilinear'),
+#                                      LeinResBlock(in_planes=64, planes=64, stride=1,  nonlin = 'leaky_relu', norm=norm),
+#                                      UpSample(2, 'bilinear'),
+#                                      LeinResBlock(in_planes=64, planes=32, stride=1,  nonlin = 'leaky_relu', norm=norm))
+        
         self.corrector = nn.Conv2d(256,1, kernel_size=3, padding=1)
         self.final = nn.Conv2d(32,1, kernel_size=3, padding=1)
         self.initialize_weights()
          
     def forward(self, x, noise):
         x = self.embed(x)
-        x = torch.cat((x,0.1*noise), axis=1)
+        x = torch.cat((x,noise), axis=1)
         x = self.process(x)
         corrected = 1.01*torch.sigmoid(self.corrector(x)) - 0.005
         x = self.upscale(x)

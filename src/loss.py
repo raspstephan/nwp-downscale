@@ -12,12 +12,14 @@ def gen_logistic_nonsaturating(disc_fake):
 def gen_ens_mean_L1_weighted(fake, real):
     mean_fake = torch.mean(fake, dim=0)
     diff = mean_fake - real
-    def weight_diff(y):
-        return torch.clamp(y+1, min=24)
-    clipped = weight_diff(real)
-    weighted_diff = diff * clipped
-    l = (1/real.numel()) * torch.linalg.norm(weighted_diff.reshape(-1), 1)
-    return l
+    return F.l1_loss(mean_fake * (real + 1), real * (real + 1))
+#     def weight_diff(y):
+# #         return torch.clamp(y+1, min=24)
+#         return y+1
+#     clipped = weight_diff(real)
+#     weighted_diff = diff * clipped
+#     l = (1/real.numel()) * torch.linalg.norm(weighted_diff.reshape(-1), 1)
+#     return l
 
 def gen_lr_corrected_skill(fake_lr, real_hr):
     real_lr = F.interpolate(real_hr, scale_factor = 0.125, mode = 'bilinear', align_corners = False) 
@@ -49,6 +51,10 @@ def gen_lr_corrected_l1(fake_lr, real_hr):
 def gen_ens_mean_lr_corrected_l1(fake_lr, real_hr):
     real_lr = F.interpolate(real_hr, scale_factor = 0.125, mode = 'bilinear', align_corners = False) 
     return F.l1_loss(torch.mean(fake_lr, dim=0), real_lr)
+
+def gen_ens_mean_lr_corrected_l1_weighted(fake_lr, real_hr):
+    real_lr = F.interpolate(real_hr, scale_factor = 0.125, mode = 'bilinear', align_corners = False) 
+    return gen_ens_mean_L1_weighted(fake_lr, real_lr)
 
 ## Discriminator loss terms
 def disc_wasserstein(disc_real, disc_fake):
