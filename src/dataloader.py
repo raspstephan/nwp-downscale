@@ -584,6 +584,7 @@ class TiggeMRMSPatchLoadDataset(Dataset):
         self.root_dir = root_dir
         self.weights = np.load(self.root_dir+'/weights/weights.npz', allow_pickle=True)['weights']
         self.var_stack_idxs = np.load(self.root_dir+'/configs/var_stack_idxs.npz', allow_pickle=True)['var_stack_idxs']
+        print(self.var_stack_idxs)
         self.samples_vars = samples_vars
         
     def __len__(self):

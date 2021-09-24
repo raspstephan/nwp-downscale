@@ -33,7 +33,7 @@ val_args = pickle.load(open('/home/jupyter/data/data_patches/valid/configs/datas
 
 args = {'href_dir': data_dir + 'hrefv2/4km/total_precipitation/first5/*.nc',
     'tigge_dir':data_dir + f'tigge/32km/',
-    'tigge_vars':['total_precipitation_ens10','total_column_water', '2m_temperature', 'convective_available_potential_energy', 'convective_inhibition'],
+    'tigge_vars':['total_precipitation_ens10','total_column_water_ens10', '2m_temperature', 'convective_available_potential_energy', 'convective_inhibition'],
     'mrms_dir':data_dir + f'mrms/4km/RadarOnly_QPE_06H/',
     'rq_fn':data_dir + f'mrms/4km/RadarQuality.nc',
 #     'const_fn':data_dir + 'tigge/32km/constants.nc',
@@ -50,8 +50,6 @@ args = {'href_dir': data_dir + 'hrefv2/4km/total_precipitation/first5/*.nc',
     'mins': val_args['mins']
     }
 
-pickle.dump(args, open('/home/jupyter/data/data_patches/test/configs/dataset_args.pkl', 'wb'))
-
 save_dir = '/home/jupyter/data/data_patches/'
 
 ds_test = TiggeMRMSHREFDataset(**args)
@@ -62,5 +60,7 @@ t.tic()
 
 starting_idx=0
 save_images(ds_test, save_dir, 'test', starting_idx)
+
+pickle.dump(args, open('/home/jupyter/data/data_patches/test/configs/dataset_args.pkl', 'wb'))
 
 t.toc('Saving patches took')
