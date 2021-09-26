@@ -2560,12 +2560,171 @@ class CorrectorGen2(nn.Module):
             if isinstance(m, (nn.Conv2d, nn.ConvTranspose2d)):#, nn.BatchNorm2d)):
 #                 nn.init.normal_(m.weight.data, 0.0, 0.02)
                 nn.init.kaiming_normal_(m.weight.data)
+
     
+    
+class CorrectorGanPretrainer(LightningModule):
+    def __init__(self, generator, noise_shape, input_channels = 1,
+                      cond_idx = 0, real_idx = 1, 
+                      zero_noise = False,
+                      opt_hparams = {'gen_optimiser':'adam', 'gen_lr': 1e-4, 'b1':0.0, 'b2' : 0.9},
+                      loss_hparams = {'gen_loss':{"wasserstein":1}}, 
+                      ): # fill in
+        super().__init__()
+        
+        self.noise_shape = noise_shape
+        self.gen = generator
+        self.real_idx = real_idx
+        self.cond_idx = cond_idx
+        self.opt_hparams = opt_hparams
+        self.loss_hparams = loss_hparams
+        self.input_channels = input_channels
+        self.upsample_input = nn.Upsample(scale_factor=8)
+        self.zero_noise = zero_noise
+
+        self.save_hyperparameters()
+
+                
+    def forward(self, condition, noise):
+        return self.gen(condition, noise)
+
+    
+    def training_step(self, batch, batch_idx):
+
+        condition, real = batch[self.cond_idx], batch[self.real_idx]
+
+        if self.global_step%500==0:
+                self.gen.eval()
+                noise = torch.randn(real.shape[0], *self.noise_shape[-3:], device=self.device)
+        #         # log sampled images
+                sample_imgs, sample_corrected_lrs = self.gen(condition[:min(len(condition), 16)], noise[:min(len(condition), 16)])
+                sample_imgs = torch.cat([real[:min(len(real), 16)], sample_imgs], dim = 0)
+#                 print(sample_imgs.shape)
+                grid = torchvision.utils.make_grid(sample_imgs)
+                self.logger.experiment.add_image('generated_images', grid, self.global_step)
+                sample_corrected_lrs = torch.cat([self.upsample_input(F.interpolate(real, scale_factor = 0.125, mode = 'bilinear', align_corners = False))[:min(len(condition), 16)], self.upsample_input(condition[:, 0:1, :, :])[:min(len(condition), 16)], self.upsample_input(sample_corrected_lrs)[:min(len(condition), 16)]], dim=0)
+                grid = torchvision.utils.make_grid(sample_corrected_lrs)
+                self.logger.experiment.add_image('corrected_lr_forecasts', grid, self.global_step)
+                self.gen.train()
+        
+        
+        if self.zero_noise:
+            noise = torch.zeros(real.shape[0], *self.noise_shape, device = self.device)
+        else:
+            noise = torch.randn(real.shape[0], *self.noise_shape, device = self.device)
+        if len(noise.shape) == 5:
+            fake = torch.empty((self.noise_shape[0], real.shape[0], real.shape[1], real.shape[2], real.shape[3]), dtype = torch.float32, device=self.device)
+            corrected_lr = torch.empty((self.noise_shape[0], condition.shape[0], 1, condition.shape[2], condition.shape[3]), dtype = torch.float32, device=self.device)
+            for i in range(noise.shape[1]):
+                noise_sample = noise[:,i,:,:,:]
+                fake_temp, corrected_lr_temp = self.gen(condition, noise_sample)
+                fake[i,:,:,:,:] = fake_temp
+                corrected_lr[i,:,:,:,:] = corrected_lr_temp
+
+        else:
+            fake, corrected_lr = self.gen(condition, noise)
+                
+        loss_gen = torch.tensor(0.0, device=self.device)
+
+
+        if "ens_mean_L1_weighted" in self.loss_hparams['gen_loss']:
+            loss_gen+= self.loss_hparams['gen_loss']["ens_mean_L1_weighted"]*gen_ens_mean_L1_weighted(fake, real)
+        
+        if "L1_weighted" in self.loss_hparams['gen_loss']:
+            loss_gen+= self.loss_hparams['gen_loss']["L1_weighted"]*gen_L1_weighted(fake, real)
+
+        if "lr_corrected_skill" in self.loss_hparams['gen_loss']:
+            loss_gen+= self.loss_hparams['gen_loss']["lr_corrected_skill"]*gen_lr_corrected_skill(corrected_lr, real)
+
+        if "lr_corrected_l1" in self.loss_hparams['gen_loss']:
+            loss_gen+= self.loss_hparams['gen_loss']["lr_corrected_l1"]*gen_lr_corrected_l1(corrected_lr, real)
+
+        if "ens_mean_lr_corrected_l1" in self.loss_hparams['gen_loss']:
+            loss_gen+= self.loss_hparams['gen_loss']["ens_mean_lr_corrected_l1"]*gen_ens_mean_lr_corrected_l1(corrected_lr, real)
+
+        if "ens_mean_lr_corrected_l1_weighted" in self.loss_hparams['gen_loss']:
+            loss_gen+= self.loss_hparams['gen_loss']["ens_mean_lr_corrected_l1_weighted"]*gen_ens_mean_lr_corrected_l1_weighted(corrected_lr, real)
+                
+                
+                
+        self.log('generator_loss_train', loss_gen, on_epoch=True, on_step=True, prog_bar=True, logger=True)
+        return loss_gen 
+        
+        
+    def configure_optimizers(self):
+        if self.opt_hparams['gen_optimiser'] == 'adam':
+            gen_opt = optim.Adam(self.gen.parameters(), eps=5e-5, lr=self.opt_hparams['gen_lr'], betas=(self.opt_hparams['b1'], self.opt_hparams['b2']), weight_decay=1e-4)
+            
+        elif self.opt_hparams['gen_optimiser'] == 'sgd':
+            gen_opt = optim.SGD(self.gen.parameters(), lr=self.opt_hparams['gen_lr'], momentum = self.opt_hparams['gen_momentum'])
+        
+        return gen_opt
+
+    def validation_step(self, batch, batch_idx):
+        
+        condition, real = batch[self.cond_idx], batch[self.real_idx]
+        
+        if self.zero_noise:
+            noise = torch.zeros(real.shape[0], *self.noise_shape, device = self.device)
+        else:
+            noise = torch.randn(real.shape[0], *self.noise_shape, device = self.device)
+        if len(noise.shape) == 5:
+            fake = torch.empty((self.noise_shape[0], real.shape[0], real.shape[1], real.shape[2], real.shape[3]), dtype = torch.float32, device=self.device)
+            corrected_lr = torch.empty((self.noise_shape[0], condition.shape[0], 1, condition.shape[2], condition.shape[3]), dtype = torch.float32, device=self.device)
+            for i in range(noise.shape[1]):
+                noise_sample = noise[:,i,:,:,:]
+                fake_temp, corrected_lr_temp = self.gen(condition, noise_sample)
+                fake[i,:,:,:,:] = fake_temp
+                corrected_lr[i,:,:,:,:] = corrected_lr_temp
+
+        else:
+            fake, corrected_lr = self.gen(condition, noise)
+                
+#         loss_gen = torch.tensor(0.0, device=self.device)
+
+
+#         if "ens_mean_L1_weighted" in self.loss_hparams['gen_loss']:
+#             loss_gen+= self.loss_hparams['gen_loss']["ens_mean_L1_weighted"]*gen_ens_mean_L1_weighted(fake, real)
+
+#         if "lr_corrected_skill" in self.loss_hparams['gen_loss']:
+#             loss_gen+= self.loss_hparams['gen_loss']["lr_corrected_skill"]*gen_lr_corrected_skill(corrected_lr, real)
+
+#         if "lr_corrected_l1" in self.loss_hparams['gen_loss']:
+#             loss_gen+= self.loss_hparams['gen_loss']["lr_corrected_l1"]*gen_lr_corrected_l1(corrected_lr, real)
+
+#         if "ens_mean_lr_corrected_l1" in self.loss_hparams['gen_loss']:
+#             loss_gen+= self.loss_hparams['gen_loss']["ens_mean_lr_corrected_l1"]*gen_ens_mean_lr_corrected_l1(corrected_lr, real)
+
+#         if "ens_mean_lr_corrected_l1_weighted" in self.loss_hparams['gen_loss']:
+#             loss_gen+= self.loss_hparams['gen_loss']["ens_mean_lr_corrected_l1_weighted"]*gen_ens_mean_lr_corrected_l1_weighted(corrected_lr, real)
+                
+        
+        l1error = gen_lr_corrected_l1(corrected_lr, real)
+        forecast_l1error = gen_lr_corrected_l1(condition[:,0:10,:,:], real)
+        
+        self.log('val_loss/corrected', l1error, on_epoch=True, prog_bar=True, logger=True)
+        self.log('val_loss/forcast', forecast_l1error, on_epoch=True, prog_bar=True, logger=True)
+        self.log('val_loss/our_error_minus_forecast_error', l1error - forecast_l1error, on_epoch=True, prog_bar=True, logger=True)
+        
+#         forecast_fss_50 = gen_lr_corrected_skill(condition[:,0:10,:,:], real)
+#         corrected_fss_50 = gen_lr_corrected_skill(corrected_lr, real)
+        
+#         self.log('fss/forecast', forecast_fss_50, on_epoch=True, prog_bar=True, logger=True)
+#         self.log('fss/corrected', corrected_fss_50, on_epoch=True, prog_bar=True, logger=True)
+#         self.log('fss/corrected_minus_forecast', corrected_fss_50-forecast_fss_50, on_epoch=True, prog_bar=True, logger=True)
+                
+        l1error = gen_L1_weighted(fake, real)
+        self.log('val_loss/generated', l1error, on_epoch=True, prog_bar=True, logger=True)        
+        
+        return l1error 
+    
+
 GANs = {
     'base':BaseGAN, 
     'wgan-gp':WGANGP, 
     'base2':BaseGAN2,
-    'corrector': CorrectorGan
+    'corrector': CorrectorGan, 
+    'corrector-pretrainer': CorrectorGanPretrainer 
 }
 
 gens = {

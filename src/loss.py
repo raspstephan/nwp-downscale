@@ -9,6 +9,10 @@ def gen_wasserstein(disc_fake):
 def gen_logistic_nonsaturating(disc_fake):
     return torch.mean(F.softplus(-disc_fake))
 
+def gen_L1_weighted(fake, real):
+    diff = fake - real
+    return F.l1_loss(fake * (real + 1), real * (real + 1))
+
 def gen_ens_mean_L1_weighted(fake, real):
     mean_fake = torch.mean(fake, dim=0)
     diff = mean_fake - real
@@ -38,12 +42,11 @@ def gen_lr_corrected_skill(fake_lr, real_hr):
     nonzero_mseref = mse_ref!=0
     fss = 1 - torch.divide(mse_sample[nonzero_mseref], mse_ref[nonzero_mseref])
 
-    return F.l1_loss(fake_lr, real_lr)  -  torch.mean(fss)
-    #return F.l1_loss(fake_lr, real_lr) + 0.1 * mse_sample
+    return  -0.1*torch.mean(fss)
     
 def gen_lr_corrected_l1(fake_lr, real_hr):
     real_lr = F.interpolate(real_hr, scale_factor = 0.125, mode = 'bilinear', align_corners = False) 
-    if len(fake_lr.shape==5):
+    if len(fake_lr.shape)==5:
         return F.l1_loss(fake_lr[0], real_lr)
     else:
         return F.l1_loss(fake_lr, real_lr)
