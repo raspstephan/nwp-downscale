@@ -21,9 +21,9 @@ def add_zero_lead_time(da, check_exists=True):
         return da
 
 
-def main(start_date, stop_date, path, check_exists=True):
+def main(start_date, stop_date, path, check_exists=True, version=''):
     
-    save_path = f'{path}/href/4km/total_precipitation/'
+    save_path = f'{path}/href{version}/4km/total_precipitation/'
     os.makedirs(save_path, exist_ok=True)
     
     init_dates = pd.to_datetime(np.arange(
@@ -47,17 +47,31 @@ def main(start_date, stop_date, path, check_exists=True):
                 for model in models:
                     current = add_zero_lead_time(
                         xr.open_dataarray(
-                            f'{path}/{model}/4km/total_precipitation/{current_date_str}_{str(date.hour).zfill(2)}.nc'
+                            f'{path}/{model}/4km{version}/total_precipitation/{current_date_str}_{str(date.hour).zfill(2)}.nc'
                         )
                     )
                     previous = add_zero_lead_time(
                         xr.open_dataarray(
-                            f'{path}/{model}/4km/total_precipitation/{previous_date_str}_{str(previous_date.hour).zfill(2)}.nc'
+                            f'{path}/{model}/4km{version}/total_precipitation/{previous_date_str}_{str(previous_date.hour).zfill(2)}.nc'
                         )
                     )
-                    previous = (previous - previous.sel(lead_time=np.timedelta64(lag, 'h'))).assign_coords({
-                        'init_time': previous.init_time + np.timedelta64(lag, 'h')
+                    
+#                     ## Account for HRRR total_precip
+#                     if model == 'hrrr':
+#                         current = current.diff('lead_time')
+#                         previous = previous.diff('lead_time')
+                    
+                    # Cut off unused lead times
+                    previous = previous.sel(lead_time=slice(np.timedelta64(lag, 'h'), None))
+                    # Change init_time to current init time
+                    # Change lead_time to 0
+                    previous = previous.assign_coords({
+                        'init_time': previous.init_time + np.timedelta64(lag, 'h')}).assign_coords({
+                        'lead_time': previous.lead_time - np.timedelta64(lag, 'h')
                     })
+                    
+                    
+                    
                     members.extend([current, previous])
                     names.extend([model, f'{model}-{lag}h'])
 
@@ -67,6 +81,17 @@ def main(start_date, stop_date, path, check_exists=True):
                     coords='minimal',
                     compat='override'
                 )
+                
+                # Dynamically check for 2x values
+                # Use nam_conusnest as reference
+                diff = href_ds.diff('lead_time').mean(('lat', 'lon'))
+                ratio = (diff / diff.sel(member='nam_conusnest')).mean('lead_time')
+                threshold = 1.8
+                is_not_x2 = ratio < threshold
+                is_hrrr = ['hrrr' in m for m in ratio.member.values]
+                is_not_x2[is_hrrr] = True
+                href_ds = href_ds.where(is_not_x2, href_ds / 2.)
+                
 
                 print('Saving', save_fn)
                 href_ds.to_netcdf(save_fn)
