@@ -601,14 +601,33 @@ class TiggeMRMSPatchLoadDataset(Dataset):
         del data
         return x,y
     
+class HREFMRMSPatchLoadDataset(Dataset):
 
-def save_images(ds, save_dir, split):
+    def __init__(self, root_dir):
+        self.root_dir = root_dir
+        self.weights = np.load(self.root_dir+'/weights/weights.npz', allow_pickle=True)['weights']
+        
+    def __len__(self):
+        return len(self.weights)
+    
+    def __getitem__(self, idx):
+        y = np.load(self.root_dir+f'/data/x_{idx}.npz')['mrms']
+        x = np.load(self.root_dir+f'/href/x_{idx}.npz')['href'].squeeze()
+        return x,y
+    
+
+def save_images(ds, save_dir, split, starting_index):
     path = save_dir + split + '/'
     os.makedirs(path+'data')
     os.makedirs(path+'weights')
     os.makedirs(path+'configs')
+    if split == 'test':
+        os.makedirs(path+'href')   
     for i in range(len(ds)):
-        np.savez_compressed(path+f'data/x_{i}.npz',forecast = ds[i][0], mrms = ds[i][1])
+        dpt = ds[i]
+        np.savez_compressed(path+f'data/x_{i+starting_index}.npz',forecast = dpt[0], mrms = dpt[1])
+        if split == 'test':
+            np.savez_compressed(path+f'href/x_{i+starting_index}.npz',href = dpt[2])
     weights = ds.compute_weights()
     np.savez_compressed(path+f'weights/weights.npz', weights = weights)
     np.savez_compressed(path+f'configs/var_stack_idxs.npz', var_stack_idxs = ds.var_stack_idxs)
