@@ -8,6 +8,14 @@ import pandas as pd
 from fire import Fire
 from gribapi.errors import PrematureEndOfFileError
 import pdb
+import signal
+
+class TimeoutException(Exception):
+    pass
+
+def handler(signum, frame):
+    print("URL Timeout")
+    raise TimeoutException("URL Timeout")
 
 def main(start_date, stop_date, tmp_path, save_path, delete_grib=True, check_exists=True,
          models=['hiresw_conusarw', 'hiresw_conusnmmb', 'hiresw_conusnssl', 'nam_conusnest'], version=''):
@@ -45,7 +53,17 @@ def main(start_date, stop_date, tmp_path, save_path, delete_grib=True, check_exi
                         # Download
                         path = f'https://data.nssl.noaa.gov/thredds/fileServer/FRDD/HREF/{date.year}/{date_str}/{model}_{date_str}{str(date.hour).zfill(2)}f{str(l).zfill(3)}.grib2'
                         tmp_fn = f'{tmp_path}/{date_str}_{str(date.hour).zfill(2)}_{str(l).zfill(2)}.grib2'
-                        urllib.request.urlretrieve(path, tmp_fn)
+                        downloaded = False
+                        while not downloaded:
+                            signal.signal(signal.SIGALRM, handler)
+                            signal.alarm(10)
+                            try:
+                                urllib.request.urlretrieve(path, tmp_fn)
+                                downloaded = True
+                            except TimeoutException as exc:
+                                print(exc)
+                        signal.alarm(0)
+                                
                         tmp_fns.append(tmp_fn)
                         
                         # Open dataset
