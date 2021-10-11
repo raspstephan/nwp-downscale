@@ -21,9 +21,9 @@ def add_zero_lead_time(da, check_exists=True):
         return da
 
 
-def main(start_date, stop_date, path, check_exists=True, version=''):
+def main(start_date, stop_date, path, check_exists=True, in_version='', out_version=''):
     
-    save_path = f'{path}/href{version}/4km/total_precipitation/'
+    save_path = f'{path}/href{out_version}/4km/total_precipitation/'
     os.makedirs(save_path, exist_ok=True)
     
     init_dates = pd.to_datetime(np.arange(
@@ -47,12 +47,12 @@ def main(start_date, stop_date, path, check_exists=True, version=''):
                 for model in models:
                     current = add_zero_lead_time(
                         xr.open_dataarray(
-                            f'{path}/{model}/4km{version}/total_precipitation/{current_date_str}_{str(date.hour).zfill(2)}.nc'
+                            f'{path}/{model}/4km{in_version}/total_precipitation/{current_date_str}_{str(date.hour).zfill(2)}.nc'
                         )
                     )
                     previous = add_zero_lead_time(
                         xr.open_dataarray(
-                            f'{path}/{model}/4km{version}/total_precipitation/{previous_date_str}_{str(previous_date.hour).zfill(2)}.nc'
+                            f'{path}/{model}/4km{in_version}/total_precipitation/{previous_date_str}_{str(previous_date.hour).zfill(2)}.nc'
                         )
                     )
                     
@@ -86,7 +86,7 @@ def main(start_date, stop_date, path, check_exists=True, version=''):
                 # Use nam_conusnest as reference
                 diff = href_ds.diff('lead_time').mean(('lat', 'lon'))
                 ratio = (diff / diff.sel(member='nam_conusnest')).mean('lead_time')
-                threshold = 1.8
+                threshold = 1.5
                 is_not_x2 = ratio < threshold
                 is_hrrr = ['hrrr' in m for m in ratio.member.values]
                 is_not_x2[is_hrrr] = True
@@ -95,6 +95,10 @@ def main(start_date, stop_date, path, check_exists=True, version=''):
 
                 print('Saving', save_fn)
                 href_ds.to_netcdf(save_fn)
+                
+                href_ds.close()
+                current.close()
+                previous.close()
             except FileNotFoundError:
                 print('Not all files exist')
         else:
