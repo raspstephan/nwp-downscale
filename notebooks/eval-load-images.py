@@ -62,7 +62,7 @@ def evaluate(input_args):
     from run_src.models import GANs
     from src.dataloader import TiggeMRMSPatchLoadDataset
 #     from run_src.utils import *
-    from src.evaluation import par_gen_patch_eval, gen_patch_eval, par_gen_full_field_eval, par_SR_gen_patch_eval
+    from src.evaluation import par_gen_patch_eval, gen_patch_eval, par_gen_full_field_eval, par_SR_gen_patch_eval, par_gen_patch_remi_eval
 
     #set seed
     torch.manual_seed(args.seed)
@@ -95,6 +95,8 @@ def evaluate(input_args):
     if input_args.eval_type == "patch":
         if 'super_resolution' in args:
             metrics = par_SR_gen_patch_eval(gen, dl_test, args.eval_hparams["num_ens"], test_args['mins'].tp.values, test_args['maxs'].tp.values, test_args['tp_log'], device)
+        elif 'remi' in args:
+            metrics = par_gen_patch_remi_eval(gen, dl_test, args.eval_hparams["num_ens"], test_args['mins'].tp.values, test_args['maxs'].tp.values, test_args['tp_log'], device)       
         else:
             metrics = par_gen_patch_eval(gen, dl_test, args.eval_hparams["num_ens"], test_args['mins'].tp.values, test_args['maxs'].tp.values, test_args['tp_log'], device)    
     elif input_args.eval_type == "full_field":
