@@ -96,19 +96,19 @@ def regrid_mrms(ds_in, km, lats=None, lons=None):
 
 
 def main(var, path, km, check_exists=True, lats=None, lons=None, mrms=False,
-         models=None, reuse_regridder=False):
+         models=None, reuse_regridder=False, raw_path='raw', version=''):
     
     # Recursive call to loop over models
     if models:
         for model in models:
             model_path = f'{path}/{model}'
             main(var, model_path, km, check_exists=check_exists, lats=lats, lons=lons,
-                 mrms=mrms, reuse_regridder=reuse_regridder)
+                 mrms=mrms, reuse_regridder=reuse_regridder, raw_path=raw_path, version=version)
         return
     
-    path_in = f'{path}/raw/{var}/'
+    path_in = f'{path}/{raw_path}/{var}/'
     files = [p.split('/')[-1] for p in sorted(glob(f'{path_in}/*.nc'))]
-    path_out = f'{path}/{km}km/{var}/'
+    path_out = f'{path}/{km}km{version}/{var}/'
     os.makedirs(path_out, exist_ok=True)
     
     regridder = None

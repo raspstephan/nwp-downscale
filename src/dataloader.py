@@ -32,7 +32,9 @@ class TiggeMRMSDataset(Dataset):
     def __init__(self, tigge_dir, tigge_vars, mrms_dir, lead_time=12, patch_size=512, rq_fn=None, 
                  const_fn=None, const_vars=None, scale=True, data_period=None, first_days=None,
                  val_days=None, split=None, mins=None, maxs=None, pad_tigge=0, pad_tigge_channel=False, tp_log=None,
-                 cat_bins=None, pure_sr_ratio=None, dropna=True, ensemble_mode=None, idx_stride=1):
+                 cat_bins=None, pure_sr_ratio=None, dropna=True, ensemble_mode=None, idx_stride=1,
+                 rq_threshold=0, rq_coverage=1
+                ):
         """
         tigge_dir: Path to TIGGE data without variable name
         tigge_vars: List of TIGGE variables
@@ -63,6 +65,8 @@ class TiggeMRMSDataset(Dataset):
         self.ensemble_mode = ensemble_mode
         self.tigge_vars = tigge_vars
         self.idx_stride = idx_stride
+        self.rq_threshold = rq_threshold
+        self.rq_coverage = rq_coverage
         # Open datasets
         self.tigge = xr.merge([
             xr.open_mfdataset(f'{tigge_dir}/{v}/*.nc') for v in tigge_vars
@@ -196,11 +200,12 @@ class TiggeMRMSDataset(Dataset):
 #         self.rqmask = rq.coarsen(lat=self.patch_mrms, lon=self.patch_mrms, boundary='trim').min() >= 0
         # RQ mask checks for validity of patch indexed by lower left coordinate
         # Note: lat is oriented reversele, so in "real" coords it's the upper left corner
+        rq = rq > self.rq_threshold
         self.rqmask = (rq[::-1, ::-1].rolling(
             {'lat': self.patch_mrms}, min_periods=1
-        ).min().rolling(
+        ).mean().rolling(
             {'lon': self.patch_mrms}, min_periods=1
-        ).min() >=0)[::-1, ::-1]
+        ).mean() >= self.rq_coverage)[::-1, ::-1]
         
     def __len__(self):
         return len(self.idxs)

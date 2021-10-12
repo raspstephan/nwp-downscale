@@ -47,20 +47,24 @@ args = {'href_dir': data_dir + 'hrefv2/4km/total_precipitation/first5/*.nc',
     'pad_tigge_channel': True, 
     'idx_stride': 8, 
     'maxs': val_args['maxs'],
-    'mins': val_args['mins']
+    'mins': val_args['mins'],
+    'rq_threshold':0.5, 
+    'rq_coverage':0.75
     }
 
 save_dir = '/home/jupyter/data/data_patches/'
 
 ds_test = TiggeMRMSHREFDataset(**args)
 
+print(len(ds_test)/128)
+
 t.toc('Loading dataset took')
 
-t.tic()
+# t.tic()
 
-starting_idx=0
-save_images(ds_test, save_dir, 'test', starting_idx)
+# starting_idx=0
+# save_images(ds_test, save_dir, 'test', starting_idx)
 
-pickle.dump(args, open('/home/jupyter/data/data_patches/test/configs/dataset_args.pkl', 'wb'))
+# pickle.dump(args, open('/home/jupyter/data/data_patches/test/configs/dataset_args.pkl', 'wb'))
 
-t.toc('Saving patches took')
+# t.toc('Saving patches took')
