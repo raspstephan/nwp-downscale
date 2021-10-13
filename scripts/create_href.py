@@ -5,6 +5,7 @@ import pandas as pd
 from datetime import timedelta
 import os
 from tqdm import tqdm
+import pprint
 
 def add_zero_lead_time(da, check_exists=True):
     if da.lead_time[0] == np.timedelta64(0):
@@ -20,6 +21,12 @@ def add_zero_lead_time(da, check_exists=True):
         ], dim='lead_time')
         return da
 
+nmmb_x2_dates = pd.to_datetime(np.arange(
+        '2020-01-08T00:00:00.000000000', '2020-03-04T00:00:00.000000000', np.timedelta64(12, 'h'), dtype='datetime64[h]'
+    )).union(
+pd.to_datetime(np.arange(
+        '2020-03-28T12:00:00.000000000', '2021-01-01T12:00:00.000000000', np.timedelta64(12, 'h'), dtype='datetime64[h]'
+    )))
 
 def main(start_date, stop_date, path, check_exists=True, in_version='', out_version=''):
     
@@ -32,7 +39,7 @@ def main(start_date, stop_date, path, check_exists=True, in_version='', out_vers
     
     models = ['hiresw_conusarw', 'hiresw_conusnmmb', 'hiresw_conusnssl', 'nam_conusnest', 'hrrr']
     
-    for date in tqdm(init_dates):
+    for date in tqdm(init_dates, disable=False):
         
         members = []
         names = []
@@ -84,13 +91,23 @@ def main(start_date, stop_date, path, check_exists=True, in_version='', out_vers
                 
                 # Dynamically check for 2x values
                 # Use nam_conusnest as reference
+                # Only do this for NMMB
                 diff = href_ds.diff('lead_time').mean(('lat', 'lon'))
                 ratio = (diff / diff.sel(member='nam_conusnest')).mean('lead_time')
                 threshold = 1.5
                 is_not_x2 = ratio < threshold
-                is_hrrr = ['hrrr' in m for m in ratio.member.values]
-                is_not_x2[is_hrrr] = True
+                is_not_x2[:] = True
+                is_not_nmmb = ['nmmb' not in m for m in ratio.member.values]
+                is_not_x2[is_not_nmmb] = True
+                if date in nmmb_x2_dates:
+                    is_not_x2[2] = False
+                if previous_date in nmmb_x2_dates:
+                    is_not_x2[3] = False
                 href_ds = href_ds.where(is_not_x2, href_ds / 2.)
+#                 print(is_not_x2)
+#                 pprint.pprint({m: not bool(b) for m, b in zip(is_not_x2.member.values, is_not_x2.values)})
+                print('\t'.join([str(is_not_x2.time.values)] + [str(not b) for b in is_not_x2.values]))
+                
                 
 
                 print('Saving', save_fn)
@@ -100,7 +117,8 @@ def main(start_date, stop_date, path, check_exists=True, in_version='', out_vers
                 current.close()
                 previous.close()
             except FileNotFoundError:
-                print('Not all files exist')
+#                 print('Not all files exist')
+                pass
         else:
             print('Exists:', save_fn)
     
