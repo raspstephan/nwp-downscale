@@ -104,7 +104,7 @@ def evaluate(input_args):
         
     print(metrics)
 
-    pickle.dump(metrics, open(model_dir+f"/{input_args.eval_type}_eval_metrics.pkl", "wb"))
+    pickle.dump(metrics, open(model_dir+f"/{input_args.eval_type}_eval_metrics_new.pkl", "wb"))
 
 if __name__ == '__main__':
     evaluate(input_args)

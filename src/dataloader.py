@@ -421,11 +421,12 @@ class TiggeMRMSHREFDataset(TiggeMRMSDataset):
 #         self.rqmask = rq.coarsen(lat=self.patch_mrms, lon=self.patch_mrms, boundary='trim').min() >= 0
         # RQ mask checks for validity of patch indexed by lower left coordinate
         # Note: lat is oriented reversele, so in "real" coords it's the upper left corner
+        rq = rq > self.rq_threshold
         self.rqmask = (rq[::-1, ::-1].rolling(
             {'lat': self.patch_mrms}, min_periods=1
-        ).min().rolling(
+        ).mean().rolling(
             {'lon': self.patch_mrms}, min_periods=1
-        ).min() >=0)[::-1, ::-1]
+        ).mean() >= self.rq_coverage)[::-1, ::-1]
         
         hrefmask = np.isfinite(self.href).mean(('member', 'valid_time')) == 1
         hrefmask = hrefmask.assign_coords(
@@ -623,16 +624,27 @@ class HREFMRMSPatchLoadDataset(Dataset):
 
 def save_images(ds, save_dir, split, starting_index):
     path = save_dir + split + '/'
-    os.makedirs(path+'data')
-    os.makedirs(path+'weights')
-    os.makedirs(path+'configs')
+    if not os.path.exists(path+'data'):
+        os.makedirs(path+'data')
+    if not os.path.exists(path+'weights'):
+        os.makedirs(path+'weights')
+    if not os.path.exists(path+'configs'):
+        os.makedirs(path+'configs')
     if split == 'test':
-        os.makedirs(path+'href')   
+        if not os.path.exists(path+'href'):
+            os.makedirs(path+'href')   
     for i in range(len(ds)):
         dpt = ds[i]
         np.savez_compressed(path+f'data/x_{i+starting_index}.npz',forecast = dpt[0], mrms = dpt[1])
         if split == 'test':
             np.savez_compressed(path+f'href/x_{i+starting_index}.npz',href = dpt[2])
+    
     weights = ds.compute_weights()
+    try:
+        old_weights = np.load(path+'weights'+'/weights.npz', allow_pickle=True)['weights']
+        weights = np.concatenate((weights, old_weights), axis=None)
+    except:
+        pass
+    print(weights.shape)
     np.savez_compressed(path+f'weights/weights.npz', weights = weights)
     np.savez_compressed(path+f'configs/var_stack_idxs.npz', var_stack_idxs = ds.var_stack_idxs)

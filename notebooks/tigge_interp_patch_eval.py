@@ -31,7 +31,7 @@ from collections import OrderedDict
 
 def evaluate():
     
-    device = torch.device(f'cuda:0')
+    device = torch.device(f'cuda:1')
     print("device", device)
     
     from src.dataloader import TiggeMRMSPatchLoadDataset
@@ -60,7 +60,7 @@ def evaluate():
         
     print(metrics)
 
-    pickle.dump(metrics, open("/home/jupyter/data/saved_models/interp_tigge_patch_eval_metrics.pkl", "wb"))
+    pickle.dump(metrics, open("/home/jupyter/data/saved_models/interp_tigge_patch_eval_metrics_new.pkl", "wb"))
 
 if __name__ == '__main__':
     evaluate()

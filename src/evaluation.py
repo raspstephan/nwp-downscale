@@ -172,21 +172,23 @@ def href_patch_eval(dl_test, ds_min, ds_max, tp_log, device):
     """
     
     t = TicToc()
-    crps = []
-    rmse = []
-    max_pool_crps = []
-    avg_pool_crps = []
-    rhist = []
-    rels_1 = []
-    rels_4 = []
-    pred_means = []
-    pred_hists = []
-    truth_means = []
-    truth_hists = []
-    preds_fss = []
-    preds_brier_1 = []
-    preds_brier_5 = []
-    preds_brier_10 = []
+#     crps = []
+#     rmse = []
+#     max_pool_crps = []
+#     avg_pool_crps = []
+#     rhist = []
+#     rels_1 = []
+#     rels_4 = []
+    rels_5 = []
+    rels_10 = []
+#     pred_means = []
+#     pred_hists = []
+#     truth_means = []
+#     truth_hists = []
+#     preds_fss = []
+#     preds_brier_1 = []
+#     preds_brier_5 = []
+#     preds_brier_10 = []
     
     t.tic()
     num_workers = mp.cpu_count()
@@ -197,19 +199,21 @@ def href_patch_eval(dl_test, ds_min, ds_max, tp_log, device):
     print(f"Total batches: {len(dl_test)}")
     def log_result(result):
         for res in result:
-            crps.append(res[0])
-            max_pool_crps.append(res[1])
-            avg_pool_crps.append(res[2])
-            rmse.append(res[3])
-            rhist.append(res[4])
-            rels_1.append(res[5])
-            rels_4.append(res[6])
-            preds_brier_1.append(res[7])
-            preds_brier_5.append(res[8])
-            preds_brier_10.append(res[9])
+#             crps.append(res[0])
+#             max_pool_crps.append(res[1])
+#             avg_pool_crps.append(res[2])
+#             rmse.append(res[3])
+#             rhist.append(res[4])
+#             rels_1.append(res[5])
+#             rels_4.append(res[6])
+#             preds_brier_1.append(res[7])
+#             preds_brier_5.append(res[8])
+#             preds_brier_10.append(res[9])
+            rels_5.append(res[0])
+            rels_10.append(res[1])
             
         print("batch complete")
-        print(f"current len of crps {len(crps)}")
+#         print(f"current len of crps {len(crps)}")
             
     for batch_idx, (x,y) in enumerate(dl_test):
         t.tic()
@@ -238,16 +242,16 @@ def href_patch_eval(dl_test, ds_min, ds_max, tp_log, device):
         if tp_log:
             truth = log_retrans(truth, tp_log)
         
-        mean_fss = fss(preds.transpose('sample', 'member', 'lat', 'lon'),truth, threshold = 4, window=25, device=device)
+#         mean_fss = fss(preds.transpose('sample', 'member', 'lat', 'lon'),truth, threshold = 4, window=25, device=device)
         
-        preds_fss.append(mean_fss)
+#         preds_fss.append(mean_fss)
         
         eps = 1e-6
         bin_edges = [-eps] + np.linspace(eps, log_retrans(ds_max, tp_log)+eps, 51).tolist()
-        pred_means.append(np.mean(preds.sel(member=0)))
-        pred_hists.append(np.histogram(preds.sel(member=0), bins = bin_edges, density=False)[0])
-        truth_means.append(np.mean(truth))
-        truth_hists.append(np.histogram(truth, bins = bin_edges, density=False)[0])
+#         pred_means.append(np.mean(preds.sel(member=0)))
+#         pred_hists.append(np.histogram(preds.sel(member=0), bins = bin_edges, density=False)[0])
+#         truth_means.append(np.mean(truth))
+#         truth_hists.append(np.histogram(truth, bins = bin_edges, density=False)[0])
         
         truth_pert = truth + np.random.normal(scale=1e-6, size=truth.shape)
         preds_pert = preds + np.random.normal(scale=1e-6, size=preds.shape) 
@@ -257,40 +261,55 @@ def href_patch_eval(dl_test, ds_min, ds_max, tp_log, device):
         
         
 
-    rels_1 = xr.concat(rels_1, dim = "patch")
-    weights_1 = rels_1.samples / rels_1.samples.sum(dim="patch")
-    weighted_relative_freq_1 = (weights_1*rels_1.relative_freq).sum(dim="patch")
-    samples_1 = rels_1.samples.sum(dim="patch")
-    forecast_probs_1 = rels_1.forecast_probability
+#     rels_1 = xr.concat(rels_1, dim = "patch")
+#     weights_1 = rels_1.samples / rels_1.samples.sum(dim="patch")
+#     weighted_relative_freq_1 = (weights_1*rels_1.relative_freq).sum(dim="patch")
+#     samples_1 = rels_1.samples.sum(dim="patch")
+#     forecast_probs_1 = rels_1.forecast_probability
     
-    rels_4 = xr.concat(rels_4, dim = "patch")
-    weights_4 = rels_4.samples / rels_4.samples.sum(dim="patch")
-    weighted_relative_freq_4 = (weights_4*rels_4.relative_freq).sum(dim="patch")
-    samples_4 = rels_4.samples.sum(dim="patch")
-    forecast_probs_4 = rels_4.forecast_probability
+#     rels_4 = xr.concat(rels_4, dim = "patch")
+#     weights_4 = rels_4.samples / rels_4.samples.sum(dim="patch")
+#     weighted_relative_freq_4 = (weights_4*rels_4.relative_freq).sum(dim="patch")
+#     samples_4 = rels_4.samples.sum(dim="patch")
+#     forecast_probs_4 = rels_4.forecast_probability
     
-    rhist = [sum([h[i] for h in rhist]) for i in range(11)]
+    rels_5 = xr.concat(rels_5, dim = "patch")
+    weights_5 = rels_5.samples / rels_5.samples.sum(dim="patch")
+    weighted_relative_freq_5 = (weights_5*rels_5.relative_freq).sum(dim="patch")
+    samples_5 = rels_5.samples.sum(dim="patch")
+    forecast_probs_5 = rels_5.forecast_probability
     
-    pred_hists = (np.sum(np.array(pred_hists), axis=0), bin_edges)
-    truth_hists = (np.sum(np.array(truth_hists), axis=0), bin_edges)
+    rels_10 = xr.concat(rels_10, dim = "patch")
+    weights_10 = rels_10.samples / rels_10.samples.sum(dim="patch")
+    weighted_relative_freq_10 = (weights_10*rels_10.relative_freq).sum(dim="patch")
+    samples_10 = rels_10.samples.sum(dim="patch")
+    forecast_probs_10 = rels_10.forecast_probability
     
-    print(f"total in pres hist {np.sum(pred_hists[0])}, total in true hist {np.sum(truth_hists[0])}")
+#     rhist = [sum([h[i] for h in rhist]) for i in range(11)]
     
-    metrics = {"crps": np.mean(crps), 
-               "max_pool_crps": np.mean(max_pool_crps), 
-               "avg_pool_crps": np.mean(avg_pool_crps),
-               "rankhist": rhist, 
-               "reliability_1": (weighted_relative_freq_1, forecast_probs_1, samples_1), 
-               "reliability_4": (weighted_relative_freq_4, forecast_probs_4, samples_4), 
-               "rmse": np.mean(rmse), 
-               "true_mean": np.mean(truth_means),
-               "preds_mean": np.mean(pred_means), 
-               "true_hist": truth_hists,
-               "preds_hist": pred_hists, 
-               "fss": np.mean(preds_fss),
-                "preds_brier_1" : np.mean(preds_brier_1),
-                "preds_brier_5" : np.mean(preds_brier_5),
-                "preds_brier_10": np.mean(preds_brier_10)
+#     pred_hists = (np.sum(np.array(pred_hists), axis=0), bin_edges)
+#     truth_hists = (np.sum(np.array(truth_hists), axis=0), bin_edges)
+    
+#     print(f"total in pres hist {np.sum(pred_hists[0])}, total in true hist {np.sum(truth_hists[0])}")
+    
+    metrics = {
+#         "crps": np.mean(crps), 
+#                "max_pool_crps": np.mean(max_pool_crps), 
+#                "avg_pool_crps": np.mean(avg_pool_crps),
+#                "rankhist": rhist, 
+#                "reliability_1": (weighted_relative_freq_1, forecast_probs_1, samples_1), 
+#                "reliability_4": (weighted_relative_freq_4, forecast_probs_4, samples_4), 
+                "reliability_5": (weighted_relative_freq_5, forecast_probs_5, samples_5),
+                "reliability_10": (weighted_relative_freq_10, forecast_probs_10, samples_10),
+#                "rmse": np.mean(rmse), 
+#                "true_mean": np.mean(truth_means),
+#                "preds_mean": np.mean(pred_means), 
+#                "true_hist": truth_hists,
+#                "preds_hist": pred_hists, 
+#                "fss": np.mean(preds_fss),
+#                 "preds_brier_1" : np.mean(preds_brier_1),
+#                 "preds_brier_5" : np.mean(preds_brier_5),
+#                 "preds_brier_10": np.mean(preds_brier_10)
               }
     
     
@@ -306,21 +325,23 @@ def tigge_interp_patch_eval(dl_test, ds_min, ds_max, tp_log, device):
     """
     
     t = TicToc()
-    crps = []
-    rmse = []
-    max_pool_crps = []
-    avg_pool_crps = []
-    rhist = []
-    rels_1 = []
-    rels_4 = []
-    pred_means = []
-    pred_hists = []
-    truth_means = []
-    truth_hists = []
-    preds_fss = []
-    preds_brier_1 = []
-    preds_brier_5 = []
-    preds_brier_10 = []
+#     crps = []
+#     rmse = []
+#     max_pool_crps = []
+#     avg_pool_crps = []
+#     rhist = []
+#     rels_1 = []
+#     rels_4 = []
+#     pred_means = []
+#     pred_hists = []
+#     truth_means = []
+#     truth_hists = []
+#     preds_fss = []
+#     preds_brier_1 = []
+#     preds_brier_5 = []
+#     preds_brier_10 = []
+    rels_5 = []
+    rels_10 = []
     
     t.tic()
     num_workers = mp.cpu_count()
@@ -331,19 +352,21 @@ def tigge_interp_patch_eval(dl_test, ds_min, ds_max, tp_log, device):
     print(f"Total batches: {len(dl_test)}")
     def log_result(result):
         for res in result:
-            crps.append(res[0])
-            max_pool_crps.append(res[1])
-            avg_pool_crps.append(res[2])
-            rmse.append(res[3])
-            rhist.append(res[4])
-            rels_1.append(res[5])
-            rels_4.append(res[6])
-            preds_brier_1.append(res[7])
-            preds_brier_5.append(res[8])
-            preds_brier_10.append(res[9])
+#             crps.append(res[0])
+#             max_pool_crps.append(res[1])
+#             avg_pool_crps.append(res[2])
+#             rmse.append(res[3])
+#             rhist.append(res[4])
+#             rels_1.append(res[5])
+#             rels_4.append(res[6])
+#             preds_brier_1.append(res[7])
+#             preds_brier_5.append(res[8])
+#             preds_brier_10.append(res[9])
+            rels_5.append(res[0])
+            rels_10.append(res[1])
             
         print("batch complete")
-        print(f"current len of crps {len(crps)}")
+#         print(f"current len of crps {len(crps)}")
             
     for batch_idx, (x,y) in enumerate(dl_test):
         t.tic()
@@ -375,16 +398,16 @@ def tigge_interp_patch_eval(dl_test, ds_min, ds_max, tp_log, device):
             truth = log_retrans(truth, tp_log)
             preds = log_retrans(preds, tp_log)
         
-        mean_fss = fss(preds.transpose('sample', 'member', 'lat', 'lon'),truth, threshold = 4, window=25, device=device)
+#         mean_fss = fss(preds.transpose('sample', 'member', 'lat', 'lon'),truth, threshold = 4, window=25, device=device)
         
-        preds_fss.append(mean_fss)
+#         preds_fss.append(mean_fss)
         
         eps = 1e-6
         bin_edges = [-eps] + np.linspace(eps, log_retrans(ds_max, tp_log)+eps, 51).tolist()
-        pred_means.append(np.mean(preds.sel(member=0)))
-        pred_hists.append(np.histogram(preds.sel(member=0), bins = bin_edges, density=False)[0])
-        truth_means.append(np.mean(truth))
-        truth_hists.append(np.histogram(truth, bins = bin_edges, density=False)[0])
+#         pred_means.append(np.mean(preds.sel(member=0)))
+#         pred_hists.append(np.histogram(preds.sel(member=0), bins = bin_edges, density=False)[0])
+#         truth_means.append(np.mean(truth))
+#         truth_hists.append(np.histogram(truth, bins = bin_edges, density=False)[0])
         
         truth_pert = truth + np.random.normal(scale=1e-6, size=truth.shape)
         preds_pert = preds + np.random.normal(scale=1e-6, size=preds.shape) 
@@ -394,40 +417,56 @@ def tigge_interp_patch_eval(dl_test, ds_min, ds_max, tp_log, device):
         
         
 
-    rels_1 = xr.concat(rels_1, dim = "patch")
-    weights_1 = rels_1.samples / rels_1.samples.sum(dim="patch")
-    weighted_relative_freq_1 = (weights_1*rels_1.relative_freq).sum(dim="patch")
-    samples_1 = rels_1.samples.sum(dim="patch")
-    forecast_probs_1 = rels_1.forecast_probability
+#     rels_1 = xr.concat(rels_1, dim = "patch")
+#     weights_1 = rels_1.samples / rels_1.samples.sum(dim="patch")
+#     weighted_relative_freq_1 = (weights_1*rels_1.relative_freq).sum(dim="patch")
+#     samples_1 = rels_1.samples.sum(dim="patch")
+#     forecast_probs_1 = rels_1.forecast_probability
     
-    rels_4 = xr.concat(rels_4, dim = "patch")
-    weights_4 = rels_4.samples / rels_4.samples.sum(dim="patch")
-    weighted_relative_freq_4 = (weights_4*rels_4.relative_freq).sum(dim="patch")
-    samples_4 = rels_4.samples.sum(dim="patch")
-    forecast_probs_4 = rels_4.forecast_probability
+#     rels_4 = xr.concat(rels_4, dim = "patch")
+#     weights_4 = rels_4.samples / rels_4.samples.sum(dim="patch")
+#     weighted_relative_freq_4 = (weights_4*rels_4.relative_freq).sum(dim="patch")
+#     samples_4 = rels_4.samples.sum(dim="patch")
+#     forecast_probs_4 = rels_4.forecast_probability
+
+    rels_5 = xr.concat(rels_5, dim = "patch")
+    weights_5 = rels_5.samples / rels_5.samples.sum(dim="patch")
+    weighted_relative_freq_5 = (weights_5*rels_5.relative_freq).sum(dim="patch")
+    samples_5 = rels_5.samples.sum(dim="patch")
+    forecast_probs_5 = rels_5.forecast_probability
     
-    rhist = [sum([h[i] for h in rhist]) for i in range(11)]
+    rels_10 = xr.concat(rels_10, dim = "patch")
+    weights_10 = rels_10.samples / rels_10.samples.sum(dim="patch")
+    weighted_relative_freq_10 = (weights_10*rels_10.relative_freq).sum(dim="patch")
+    samples_10 = rels_10.samples.sum(dim="patch")
+    forecast_probs_10 = rels_10.forecast_probability
     
-    pred_hists = (np.sum(np.array(pred_hists), axis=0), bin_edges)
-    truth_hists = (np.sum(np.array(truth_hists), axis=0), bin_edges)
+#     rhist = [sum([h[i] for h in rhist]) for i in range(11)]
     
-    print(f"total in pres hist {np.sum(pred_hists[0])}, total in true hist {np.sum(truth_hists[0])}")
+#     pred_hists = (np.sum(np.array(pred_hists), axis=0), bin_edges)
+#     truth_hists = (np.sum(np.array(truth_hists), axis=0), bin_edges)
     
-    metrics = {"crps": np.mean(crps), 
-               "max_pool_crps": np.mean(max_pool_crps), 
-               "avg_pool_crps": np.mean(avg_pool_crps),
-               "rankhist": rhist, 
-               "reliability_1": (weighted_relative_freq_1, forecast_probs_1, samples_1), 
-               "reliability_4": (weighted_relative_freq_4, forecast_probs_4, samples_4), 
-               "rmse": np.mean(rmse), 
-               "true_mean": np.mean(truth_means),
-               "preds_mean": np.mean(pred_means), 
-               "true_hist": truth_hists,
-               "preds_hist": pred_hists, 
-               "fss": np.mean(preds_fss),
-                "preds_brier_1" : np.mean(preds_brier_1),
-                "preds_brier_5" : np.mean(preds_brier_5),
-                "preds_brier_10": np.mean(preds_brier_10)
+#     print(f"total in pres hist {np.sum(pred_hists[0])}, total in true hist {np.sum(truth_hists[0])}")
+    
+    metrics = {
+#         "crps": np.mean(crps), 
+#                "max_pool_crps": np.mean(max_pool_crps), 
+#                "avg_pool_crps": np.mean(avg_pool_crps),
+#                "rankhist": rhist, 
+#                "reliability_1": (weighted_relative_freq_1, forecast_probs_1, samples_1), 
+#                "reliability_4": (weighted_relative_freq_4, forecast_probs_4, samples_4), 
+#                "rmse": np.mean(rmse), 
+#                "true_mean": np.mean(truth_means),
+#                "preds_mean": np.mean(pred_means), 
+#                "true_hist": truth_hists,
+#                "preds_hist": pred_hists, 
+#                "fss": np.mean(preds_fss),
+#                 "preds_brier_1" : np.mean(preds_brier_1),
+#                 "preds_brier_5" : np.mean(preds_brier_5),
+#                 "preds_brier_10": np.mean(preds_brier_10)
+                "reliability_5": (weighted_relative_freq_5, forecast_probs_5, samples_5),
+                "reliability_10": (weighted_relative_freq_10, forecast_probs_10, samples_10),
+        
               }
     
     
@@ -435,31 +474,39 @@ def tigge_interp_patch_eval(dl_test, ds_min, ds_max, tp_log, device):
 
 
 def compute_metrics(truth, preds, truth_pert, preds_pert, sample):
-    sample_crps = xs.crps_ensemble(truth.sel(sample=sample), preds.sel(sample=sample)).values
-    truth_course = truth.coarsen(lat=4, lon=4)
-    preds_course = preds.coarsen(lat=4, lon=4)
-    sample_max_pool_crps = xs.crps_ensemble(truth_course.max().sel(sample=sample), preds_course.max().sel(sample=sample)).values
-    sample_avg_pool_crps = xs.crps_ensemble(truth_course.mean().sel(sample=sample), preds_course.mean().sel(sample=sample)).values
-    sample_rmse = xs.rmse(preds.sel(sample=sample).mean('member'), truth.sel(sample=sample), dim=['lat', 'lon']).values
-    rhist = xs.rank_histogram(truth_pert.sel(sample=sample), preds_pert.sel(sample=sample)).values
+#     sample_crps = xs.crps_ensemble(truth.sel(sample=sample), preds.sel(sample=sample)).values
+#     truth_course = truth.coarsen(lat=4, lon=4)
+#     preds_course = preds.coarsen(lat=4, lon=4)
+#     sample_max_pool_crps = xs.crps_ensemble(truth_course.max().sel(sample=sample), preds_course.max().sel(sample=sample)).values
+#     sample_avg_pool_crps = xs.crps_ensemble(truth_course.mean().sel(sample=sample), preds_course.mean().sel(sample=sample)).values
+#     sample_rmse = xs.rmse(preds.sel(sample=sample).mean('member'), truth.sel(sample=sample), dim=['lat', 'lon']).values
+#     rhist = xs.rank_histogram(truth_pert.sel(sample=sample), preds_pert.sel(sample=sample)).values
     
-    rel1 = xs.reliability(truth.sel(sample=sample)>1,(preds.sel(sample=sample)>1).mean('member'))
-    rel1 = xr.where(np.isnan(rel1), 0, rel1)
-    rel1['relative_freq'] = rel1
+#     rel1 = xs.reliability(truth.sel(sample=sample)>1,(preds.sel(sample=sample)>1).mean('member'))
+#     rel1 = xr.where(np.isnan(rel1), 0, rel1)
+#     rel1['relative_freq'] = rel1
     
-    rel4 = xs.reliability(truth.sel(sample=sample)>4,(preds.sel(sample=sample)>4).mean('member'))
-    rel4 = xr.where(np.isnan(rel4), 0, rel4)
-    rel4['relative_freq'] = rel4
+#     rel4 = xs.reliability(truth.sel(sample=sample)>4,(preds.sel(sample=sample)>4).mean('member'))
+#     rel4 = xr.where(np.isnan(rel4), 0, rel4)
+#     rel4['relative_freq'] = rel4
+    
+    rel5 = xs.reliability(truth.sel(sample=sample)>5,(preds.sel(sample=sample)>5).mean('member'))
+    rel5 = xr.where(np.isnan(rel5), 0, rel5)
+    rel5['relative_freq'] = rel5
+    
+    rel10 = xs.reliability(truth.sel(sample=sample)>10,(preds.sel(sample=sample)>10).mean('member'))
+    rel10 = xr.where(np.isnan(rel10), 0, rel10)
+    rel10['relative_freq'] = rel10
 
     
-    sample_brier_1 = xs.brier_score(truth.sel(sample=sample) > 1.0, (preds.sel(sample=sample) > 1.0).mean('member'), dim=['lat', 'lon'])
+#     sample_brier_1 = xs.brier_score(truth.sel(sample=sample) > 1.0, (preds.sel(sample=sample) > 1.0).mean('member'), dim=['lat', 'lon'])
     
-    sample_brier_5 = xs.brier_score(truth.sel(sample=sample) > 5.0, (preds.sel(sample=sample) > 5.0).mean('member'), dim=['lat', 'lon'])
+#     sample_brier_5 = xs.brier_score(truth.sel(sample=sample) > 5.0, (preds.sel(sample=sample) > 5.0).mean('member'), dim=['lat', 'lon'])
         
-    sample_brier_10 = xs.brier_score(truth.sel(sample=sample) > 10.0, (preds.sel(sample=sample) > 10.0).mean('member'), dim=['lat', 'lon'])
+#     sample_brier_10 = xs.brier_score(truth.sel(sample=sample) > 10.0, (preds.sel(sample=sample) > 10.0).mean('member'), dim=['lat', 'lon'])
     
-    return (sample_crps, sample_max_pool_crps, sample_avg_pool_crps, sample_rmse, rhist, rel1, rel4, sample_brier_1, sample_brier_5, sample_brier_10)
-    
+#     return (sample_crps, sample_max_pool_crps, sample_avg_pool_crps, sample_rmse, rhist, rel1, rel4, sample_brier_1, sample_brier_5, sample_brier_10)
+    return (rel5, rel10)
 
     
 def fss(x,y,threshold, window, device):
@@ -807,21 +854,23 @@ def par_gen_patch_eval(gen, dl_test, nens, ds_min, ds_max, tp_log, device):
             
     
     t = TicToc()
-    crps = []
-    rmse = []
-    max_pool_crps = []
-    avg_pool_crps = []
-    rhist = []
-    rels_1 = []
-    rels_4 = []
-    pred_means = []
-    pred_hists = []
-    truth_means = []
-    truth_hists = []
-    preds_fss = []
-    preds_brier_1 = []
-    preds_brier_5 = []
-    preds_brier_10 = []
+#     crps = []
+#     rmse = []
+#     max_pool_crps = []
+#     avg_pool_crps = []
+#     rhist = []
+#     rels_1 = []
+#     rels_4 = []
+#     pred_means = []
+#     pred_hists = []
+#     truth_means = []
+#     truth_hists = []
+#     preds_fss = []
+#     preds_brier_1 = []
+#     preds_brier_5 = []
+#     preds_brier_10 = []
+    rels_5 = []
+    rels_10 = []
     
     t.tic()
     num_workers = mp.cpu_count()
@@ -832,19 +881,21 @@ def par_gen_patch_eval(gen, dl_test, nens, ds_min, ds_max, tp_log, device):
     print(f"Total batches: {len(dl_test)}")
     def log_result(result):
         for res in result:
-            crps.append(res[0])
-            max_pool_crps.append(res[1])
-            avg_pool_crps.append(res[2])
-            rmse.append(res[3])
-            rhist.append(res[4])
-            rels_1.append(res[5])
-            rels_4.append(res[6])
-            preds_brier_1.append(res[7])
-            preds_brier_5.append(res[8])
-            preds_brier_10.append(res[9])
+#             crps.append(res[0])
+#             max_pool_crps.append(res[1])
+#             avg_pool_crps.append(res[2])
+#             rmse.append(res[3])
+#             rhist.append(res[4])
+#             rels_1.append(res[5])
+#             rels_4.append(res[6])
+#             preds_brier_1.append(res[7])
+#             preds_brier_5.append(res[8])
+#             preds_brier_10.append(res[9])
+            rels_5.append(res[0])
+            rels_10.append(res[1])
             
         print("batch complete")
-        print(f"current len of crps {len(crps)}")
+#         print(f"current len of crps {len(crps)}")
             
     for batch_idx, (x,y) in enumerate(dl_test):
         t.tic()
@@ -879,16 +930,16 @@ def par_gen_patch_eval(gen, dl_test, nens, ds_min, ds_max, tp_log, device):
             truth = log_retrans(truth, tp_log)
             preds = log_retrans(preds, tp_log)
         
-        mean_fss = fss(preds.transpose('sample', 'member', 'lat', 'lon'),truth, threshold = 4, window=25, device=device)
+#         mean_fss = fss(preds.transpose('sample', 'member', 'lat', 'lon'),truth, threshold = 4, window=25, device=device)
         
-        preds_fss.append(mean_fss)
+#         preds_fss.append(mean_fss)
         
         eps = 1e-6
         bin_edges = [-eps] + np.linspace(eps, log_retrans(ds_max, tp_log)+eps, 51).tolist()
-        pred_means.append(np.mean(preds.sel(member=0)))
-        pred_hists.append(np.histogram(preds.sel(member=0), bins = bin_edges, density=False)[0])
-        truth_means.append(np.mean(truth))
-        truth_hists.append(np.histogram(truth, bins = bin_edges, density=False)[0])
+#         pred_means.append(np.mean(preds.sel(member=0)))
+#         pred_hists.append(np.histogram(preds.sel(member=0), bins = bin_edges, density=False)[0])
+#         truth_means.append(np.mean(truth))
+#         truth_hists.append(np.histogram(truth, bins = bin_edges, density=False)[0])
         
         truth_pert = truth + np.random.normal(scale=1e-6, size=truth.shape)
         preds_pert = preds + np.random.normal(scale=1e-6, size=preds.shape) 
@@ -898,40 +949,55 @@ def par_gen_patch_eval(gen, dl_test, nens, ds_min, ds_max, tp_log, device):
         
         
 
-    rels_1 = xr.concat(rels_1, dim = "patch")
-    weights_1 = rels_1.samples / rels_1.samples.sum(dim="patch")
-    weighted_relative_freq_1 = (weights_1*rels_1.relative_freq).sum(dim="patch")
-    samples_1 = rels_1.samples.sum(dim="patch")
-    forecast_probs_1 = rels_1.forecast_probability
+#     rels_1 = xr.concat(rels_1, dim = "patch")
+#     weights_1 = rels_1.samples / rels_1.samples.sum(dim="patch")
+#     weighted_relative_freq_1 = (weights_1*rels_1.relative_freq).sum(dim="patch")
+#     samples_1 = rels_1.samples.sum(dim="patch")
+#     forecast_probs_1 = rels_1.forecast_probability
     
-    rels_4 = xr.concat(rels_4, dim = "patch")
-    weights_4 = rels_4.samples / rels_4.samples.sum(dim="patch")
-    weighted_relative_freq_4 = (weights_4*rels_4.relative_freq).sum(dim="patch")
-    samples_4 = rels_4.samples.sum(dim="patch")
-    forecast_probs_4 = rels_4.forecast_probability
+#     rels_4 = xr.concat(rels_4, dim = "patch")
+#     weights_4 = rels_4.samples / rels_4.samples.sum(dim="patch")
+#     weighted_relative_freq_4 = (weights_4*rels_4.relative_freq).sum(dim="patch")
+#     samples_4 = rels_4.samples.sum(dim="patch")
+#     forecast_probs_4 = rels_4.forecast_probability
+
+    rels_5 = xr.concat(rels_5, dim = "patch")
+    weights_5 = rels_5.samples / rels_5.samples.sum(dim="patch")
+    weighted_relative_freq_5 = (weights_5*rels_5.relative_freq).sum(dim="patch")
+    samples_5 = rels_5.samples.sum(dim="patch")
+    forecast_probs_5 = rels_5.forecast_probability
     
-    rhist = [sum([h[i] for h in rhist]) for i in range(nens+1)]
+    rels_10 = xr.concat(rels_10, dim = "patch")
+    weights_10 = rels_10.samples / rels_10.samples.sum(dim="patch")
+    weighted_relative_freq_10 = (weights_10*rels_10.relative_freq).sum(dim="patch")
+    samples_10 = rels_10.samples.sum(dim="patch")
+    forecast_probs_10 = rels_10.forecast_probability
     
-    pred_hists = (np.sum(np.array(pred_hists), axis=0), bin_edges)
-    truth_hists = (np.sum(np.array(truth_hists), axis=0), bin_edges)
+#     rhist = [sum([h[i] for h in rhist]) for i in range(nens+1)]
     
-    print(f"total in pres hist {np.sum(pred_hists[0])}, total in true hist {np.sum(truth_hists[0])}")
+#     pred_hists = (np.sum(np.array(pred_hists), axis=0), bin_edges)
+#     truth_hists = (np.sum(np.array(truth_hists), axis=0), bin_edges)
     
-    metrics = {"crps": np.mean(crps), 
-               "max_pool_crps": np.mean(max_pool_crps), 
-               "avg_pool_crps": np.mean(avg_pool_crps),
-               "rankhist": rhist, 
-               "reliability_1": (weighted_relative_freq_1, forecast_probs_1, samples_1), 
-               "reliability_4": (weighted_relative_freq_4, forecast_probs_4, samples_4), 
-               "rmse": np.mean(rmse), 
-               "true_mean": np.mean(truth_means),
-               "preds_mean": np.mean(pred_means), 
-               "true_hist": truth_hists,
-               "preds_hist": pred_hists, 
-               "fss": np.mean(preds_fss),
-                "preds_brier_1" : np.mean(preds_brier_1),
-                "preds_brier_5" : np.mean(preds_brier_5),
-                "preds_brier_10": np.mean(preds_brier_10)
+#     print(f"total in pres hist {np.sum(pred_hists[0])}, total in true hist {np.sum(truth_hists[0])}")
+    
+    metrics = {
+#         "crps": np.mean(crps), 
+#                "max_pool_crps": np.mean(max_pool_crps), 
+#                "avg_pool_crps": np.mean(avg_pool_crps),
+#                "rankhist": rhist, 
+#                "reliability_1": (weighted_relative_freq_1, forecast_probs_1, samples_1), 
+#                "reliability_4": (weighted_relative_freq_4, forecast_probs_4, samples_4), 
+#                "rmse": np.mean(rmse), 
+#                "true_mean": np.mean(truth_means),
+#                "preds_mean": np.mean(pred_means), 
+#                "true_hist": truth_hists,
+#                "preds_hist": pred_hists, 
+#                "fss": np.mean(preds_fss),
+#                 "preds_brier_1" : np.mean(preds_brier_1),
+#                 "preds_brier_5" : np.mean(preds_brier_5),
+#                 "preds_brier_10": np.mean(preds_brier_10)
+                "reliability_5": (weighted_relative_freq_5, forecast_probs_5, samples_5),
+                "reliability_10": (weighted_relative_freq_10, forecast_probs_10, samples_10),
               }
     
     
